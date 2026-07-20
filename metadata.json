@@ -1,0 +1,6 @@
+{
+  "name": "TrendMarket",
+  "description": "Suivi et analyse de tendances pour téléphones high-tech selon l'usage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

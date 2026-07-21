@@ -23,6 +23,10 @@ async function startServer() {
     }
   });
 
+  // In-memory cache for comparison results to conserve API quota (1 hour TTL)
+  const cache = new Map<string, { data: any; timestamp: number }>();
+  const CACHE_TTL_MS = 60 * 60 * 1000;
+
   // API Route: Compare any two terms using Google Search Grounding with robust rate-limit fallbacks
   app.post("/api/compare", async (req, res) => {
     const { termA, termB, category } = req.body;
@@ -31,6 +35,14 @@ async function startServer() {
     }
 
     const categoryLabel = category || "Général";
+    const cacheKey = `${termA.toLowerCase().trim()}|${termB.toLowerCase().trim()}|${categoryLabel.toLowerCase().trim()}`;
+
+    // Check cache first to avoid unnecessary Gemini quota consumption
+    const cachedItem = cache.get(cacheKey);
+    if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL_MS)) {
+      console.log(`[API Compare] Cache hit for "${termA}" vs "${termB}"`);
+      return res.json(cachedItem.data);
+    }
 
     // Helper to generate deterministic hash for consistent dynamic mock calculations
     const getDeterministicHash = (str: string): number => {
@@ -151,15 +163,17 @@ Ta réponse DOIT être un objet JSON valide rédigé en français et respectant 
 Assure-toi que les valeurs de "monthlyData" et "trendScore" reflètent de manière réaliste et proportionnelle la différence d'intérêt, de pénétration de marché et de volume de recherche constatée sur le web pour ces deux termes.`;
 
     if (!process.env.GEMINI_API_KEY) {
-      console.warn("GEMINI_API_KEY is not defined. Falling back immediately to smart heuristics.");
-      return res.json(generateSmartHeuristics(termA, termB, categoryLabel));
+      console.log("[API Compare] GEMINI_API_KEY is not defined. Using smart local heuristics.");
+      const fallback = generateSmartHeuristics(termA, termB, categoryLabel);
+      cache.set(cacheKey, { data: fallback, timestamp: Date.now() });
+      return res.json(fallback);
     }
 
     try {
       // --- LAYER 1: Full Grounding with Search Tool ---
-      console.log(`[API Compare] Attempting Layer 1 (Google Search Grounding) for "${termA}" vs "${termB}"`);
+      console.log(`[API Compare] Layer 1 (Search Grounding gemini-2.5-flash) for "${termA}" vs "${termB}"`);
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -198,20 +212,23 @@ Assure-toi que les valeurs de "monthlyData" et "trendScore" reflètent de maniè
         }
       }
 
-      return res.json({
+      const resultPayload = {
         ...parsedData,
         isFallback: false,
         groundingSources: uniqueSources.slice(0, 5),
-      });
+      };
+
+      cache.set(cacheKey, { data: resultPayload, timestamp: Date.now() });
+      return res.json(resultPayload);
 
     } catch (layer1Error: any) {
-      console.warn("Layer 1 (Search Grounding) failed. Error detail:", layer1Error?.message || layer1Error);
+      console.log(`[API Compare] Layer 1 skipped due to quota or network limitation: ${layer1Error?.status || layer1Error?.message || 'Quota limit'}`);
       
       try {
         // --- LAYER 2: Standard AI Generation (No search tools, lower token/rate pressure) ---
-        console.log(`[API Compare] Attempting Layer 2 (Standard AI without Search) for "${termA}" vs "${termB}"`);
+        console.log(`[API Compare] Layer 2 (Standard AI gemini-2.5-flash) for "${termA}" vs "${termB}"`);
         const responseNoSearch = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-2.5-flash",
           contents: prompt + "\nNote : l'accès aux outils de recherche est temporairement restreint. Sers-toi de tes connaissances internes.",
           config: {
             responseMimeType: "application/json",
@@ -224,20 +241,24 @@ Assure-toi que les valeurs de "monthlyData" et "trendScore" reflètent de maniè
         }
 
         const parsedData = JSON.parse(responseText.trim());
-        return res.json({
+        const resultPayload = {
           ...parsedData,
           isFallback: true,
           isStandardAIFallback: true,
           groundingSources: [
             { title: "Base de connaissances interne de l'IA (Mise à jour)", url: "https://ai.google" }
           ]
-        });
+        };
+
+        cache.set(cacheKey, { data: resultPayload, timestamp: Date.now() });
+        return res.json(resultPayload);
 
       } catch (layer2Error: any) {
-        console.error("Layer 2 (Standard AI) failed. Activating Layer 3 (Smart Local Heuristics). Error detail:", layer2Error?.message || layer2Error);
+        console.log(`[API Compare] Layer 2 skipped due to demand/rate limits. Activating Layer 3 (Smart Local Heuristics).`);
         
         // --- LAYER 3: Smart Local Dynamic Heuristics (Zero network calls, absolute guarantee of success) ---
         const fallbackResponse = generateSmartHeuristics(termA, termB, categoryLabel);
+        cache.set(cacheKey, { data: fallbackResponse, timestamp: Date.now() });
         return res.json(fallbackResponse);
       }
     }

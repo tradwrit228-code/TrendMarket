@@ -229,11 +229,23 @@ export default function App() {
           {/* Theme Selector */}
           <div className="flex items-center space-x-3">
             <button 
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none transition-all duration-200 cursor-pointer active:scale-95" 
-              aria-label="Toggle Theme"
+              type="button"
+              onClick={() => setIsDarkMode((prev) => !prev)}
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none transition-all duration-200 cursor-pointer flex items-center gap-2 active:scale-95 shadow-sm" 
+              aria-label={isDarkMode ? "Passer en mode clair" : "Passer en mode sombre"}
+              title={isDarkMode ? "Passer en mode clair" : "Passer en mode sombre"}
             >
-              {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-500" />}
+              {isDarkMode ? (
+                <>
+                  <Sun className="w-4 h-4 text-amber-400 shrink-0 pointer-events-none" />
+                  <span className="text-xs font-semibold text-amber-400 pointer-events-none">Mode Clair</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-4 h-4 text-slate-700 shrink-0 pointer-events-none" />
+                  <span className="text-xs font-semibold text-slate-700 pointer-events-none">Mode Sombre</span>
+                </>
+              )}
             </button>
           </div>
         </div>

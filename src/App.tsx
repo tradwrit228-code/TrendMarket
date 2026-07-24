@@ -31,35 +31,7 @@ import {
   Area
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-
-// --- DATA STRUCTURE FOR RESPONSES ---
-interface CompareData {
-  isFallback?: boolean;
-  isStandardAIFallback?: boolean;
-  termA: {
-    name: string;
-    description: string;
-    marketShare: string;
-    trendDirection: 'up' | 'down' | 'stable';
-    trendScore: number;
-    pros: string[];
-    cons: string[];
-    monthlyData: number[];
-  };
-  termB: {
-    name: string;
-    description: string;
-    marketShare: string;
-    trendDirection: 'up' | 'down' | 'stable';
-    trendScore: number;
-    pros: string[];
-    cons: string[];
-    monthlyData: number[];
-  };
-  comparisonSummary: string;
-  keyFactors: string[];
-  groundingSources?: { title: string; url: string }[];
-}
+import { CompareData, generateClientFallbackData } from './lib/fallbackData';
 
 // Popular sample suggestions
 const POPULAR_COMPARISONS = [
@@ -123,60 +95,7 @@ export default function App() {
     handleCompare(true);
   }, []);
 
-  const handleCompare = async (isInitial = false) => {
-    const queryA = isInitial ? 'Netflix' : termA.trim();
-    const queryB = isInitial ? 'Disney+' : termB.trim();
-
-    if (!queryA || !queryB) {
-      setError("Veuillez saisir deux termes à comparer.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/compare', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          termA: queryA,
-          termB: queryB,
-          category
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Une erreur est survenue lors de la communication avec le serveur.");
-      }
-
-      setResult(data);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Une erreur inattendue est survenue.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSuggestionClick = (sA: string, sB: string, sCat: string) => {
-    setTermA(sA);
-    setTermB(sB);
-    setCategory(sCat);
-    // Direct trigger
-    setTimeout(() => {
-      // Small timeout to allow input state updating visually
-      triggerDirectCompare(sA, sB, sCat);
-    }, 50);
-  };
-
-  const triggerDirectCompare = async (queryA: string, queryB: string, queryCat: string) => {
-    setLoading(true);
-    setError(null);
+  const safeFetchCompare = async (queryA: string, queryB: string, queryCat: string): Promise<CompareData> => {
     try {
       const response = await fetch('/api/compare', {
         method: 'POST',
@@ -190,10 +109,68 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Erreur de serveur.");
+      const contentType = response.headers.get('content-type') || '';
+      
+      // If the response is HTML (e.g. Vercel static routing 404/500 or proxy error page), do not attempt response.json()
+      if (!contentType.includes('application/json')) {
+        console.warn("Received non-JSON response from server (e.g. Vercel deployment HTML page). Utilizing smart client-side analysis engine.");
+        return generateClientFallbackData(queryA, queryB, queryCat);
       }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data && typeof data === 'object' && data.termA && data.termB) {
+          return data;
+        }
+        console.warn("Server responded with error status, activating local comparison model:", data.error);
+        return generateClientFallbackData(queryA, queryB, queryCat);
+      }
+
+      return data;
+    } catch (fetchError) {
+      console.warn("Network or JSON parsing error detected. Executing client-side fallback:", fetchError);
+      return generateClientFallbackData(queryA, queryB, queryCat);
+    }
+  };
+
+  const handleCompare = async (isInitial = false) => {
+    const queryA = isInitial ? 'Netflix' : termA.trim();
+    const queryB = isInitial ? 'Disney+' : termB.trim();
+
+    if (!queryA || !queryB) {
+      setError("Veuillez saisir deux termes à comparer.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await safeFetchCompare(queryA, queryB, category);
+      setResult(data);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Une erreur inattendue est survenue.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuggestionClick = (sA: string, sB: string, sCat: string) => {
+    setTermA(sA);
+    setTermB(sB);
+    setCategory(sCat);
+    setTimeout(() => {
+      triggerDirectCompare(sA, sB, sCat);
+    }, 50);
+  };
+
+  const triggerDirectCompare = async (queryA: string, queryB: string, queryCat: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await safeFetchCompare(queryA, queryB, queryCat);
       setResult(data);
     } catch (err: any) {
       console.error(err);

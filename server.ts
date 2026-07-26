@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { performDirectWebSearch } from "./src/lib/directWebSearch.ts";
 
 dotenv.config();
 
@@ -29,19 +30,33 @@ async function startServer() {
 
   // API Route: Compare any two terms using Google Search Grounding with robust rate-limit fallbacks
   app.post("/api/compare", async (req, res) => {
-    const { termA, termB, category } = req.body;
+    const { termA, termB, category, mode, useDirectWeb, userLang: bodyUserLang } = req.body;
     if (!termA || !termB) {
       return res.status(400).json({ error: "Les deux termes à comparer sont requis." });
     }
 
+    const userLang = bodyUserLang || (req.headers['accept-language'] ? req.headers['accept-language'].split(',')[0] : 'fr-FR');
+    const isDirectMode = mode === 'direct_web' || useDirectWeb === true;
     const categoryLabel = category || "Général";
-    const cacheKey = `${termA.toLowerCase().trim()}|${termB.toLowerCase().trim()}|${categoryLabel.toLowerCase().trim()}`;
+    const cacheKey = `${termA.toLowerCase().trim()}|${termB.toLowerCase().trim()}|${categoryLabel.toLowerCase().trim()}|${isDirectMode ? 'direct' : 'ai'}|${userLang.slice(0, 2)}`;
 
-    // Check cache first to avoid unnecessary Gemini quota consumption
+    // Check cache first to avoid unnecessary quota consumption
     const cachedItem = cache.get(cacheKey);
     if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL_MS)) {
-      console.log(`[API Compare] Cache hit for "${termA}" vs "${termB}"`);
+      console.log(`[API Compare] Cache hit for "${termA}" vs "${termB}" (${isDirectMode ? 'Direct Web' : 'AI'})`);
       return res.json(cachedItem.data);
+    }
+
+    // Direct Internet Search (100% No AI)
+    if (isDirectMode) {
+      console.log(`[API Compare] Direct Web Engine (No AI) for "${termA}" vs "${termB}" in language ${userLang}`);
+      try {
+        const directResult = await performDirectWebSearch(termA, termB, categoryLabel, userLang);
+        cache.set(cacheKey, { data: directResult, timestamp: Date.now() });
+        return res.json(directResult);
+      } catch (err) {
+        console.error("Direct web search failed, continuing to fallback", err);
+      }
     }
 
     // Helper to generate deterministic hash for consistent dynamic mock calculations
@@ -78,10 +93,32 @@ async function startServer() {
         isFallback: true,
         termA: {
           name: tA,
+          typeLabel: "Produit / Service Majeur",
           description: `Sujet de premier plan évalué dans la catégorie ${cat}. Représente une force majeure du marché avec une forte implantation commerciale.`,
           marketShare: `${18 + (hashA % 32)}% d'adoption sectorielle`,
           trendDirection: dirA,
           trendScore: scoreA,
+          capabilities: [
+            "Traitement haute performance et réactivité avancée",
+            "Interface utilisateur intuitive et personnalisable",
+            "Sécurité renforcée et conformité aux standards actuels",
+            "Interopérabilité fluide avec les outils tiers"
+          ],
+          useCasesAndUtility: `Besoins professionnels et grand public recherchant une solution éprouvée pour optimiser les performances dans le secteur ${cat}.`,
+          systemsAndPlatforms: [
+            "Web (Navigateurs Chrome, Safari, Firefox)",
+            "Applications Mobiles (iOS, Android)",
+            "Infrastructures Cloud & API Rest/GraphQL"
+          ],
+          businessModel: "Abonnement Freemium / Accès sur mesure",
+          technicalSpecs: [
+            { label: "Classification", value: `Solution Standard ${cat}` },
+            { label: "Architecture / Moteur", value: "Cloud Distribué / High Availability" },
+            { label: "Sécurité & Normes", value: "TLS 1.3, Chiffrement AES-256, ISO 27001" },
+            { label: "Disponibilité (SLA)", value: "99.9% uptime garanti" },
+            { label: "Protocoles & Formats", value: "REST API, WebSockets, JSON, OAuth2" },
+            { label: "Support & SLA", value: "Support 24/7 & Mises à jour automatisées" }
+          ],
           pros: [
             "Excellente pénétration de marché et forte notoriété globale",
             "Écosystème robuste avec une grande fidélité des utilisateurs",
@@ -96,10 +133,32 @@ async function startServer() {
         },
         termB: {
           name: tB,
+          typeLabel: "Alternative & Solution Compétitive",
           description: `Alternative de référence et solution compétitive dans le domaine ${cat}. Très appréciée pour ses innovations.`,
           marketShare: `${12 + (hashB % 28)}% d'adoption sectorielle`,
           trendDirection: dirB,
           trendScore: scoreB,
+          capabilities: [
+            "Déploiement rapide et simplicité d'installation",
+            "Tarification très compétitive et flexibilité d'usage",
+            "Fonctionnalités modulaires adaptables aux besoins",
+            "Support client réactif et communauté engagée"
+          ],
+          useCasesAndUtility: `Utilisateurs, PME et passionnés cherchant une alternative moderne et rentable avec une grande souplesse dans ${cat}.`,
+          systemsAndPlatforms: [
+            "Plateformes Multi-OS (Windows, macOS, Linux)",
+            "Service Cloud natif & Apps dédiées",
+            "Connecteurs et webhooks universels"
+          ],
+          businessModel: "Abonnement modulaire / Licence flexible",
+          technicalSpecs: [
+            { label: "Classification", value: `Solution Agile ${cat}` },
+            { label: "Architecture / Moteur", value: "Cloud Native / Serverless Engine" },
+            { label: "Sécurité & Normes", value: "RGPD Compliant, HTTPS, OAuth 2.0" },
+            { label: "Disponibilité (SLA)", value: "99.5% uptime moyen" },
+            { label: "Protocoles & Formats", value: "Webhooks, OpenAPI, SDK Multi-plateformes" },
+            { label: "Support & SLA", value: "Support Ticket 5j/7 & Forum actif" }
+          ],
           pros: [
             "Tarification compétitive ou grande flexibilité d'usage",
             "Fonctionnalités innovantes et réactivité face aux demandes",
@@ -126,35 +185,59 @@ async function startServer() {
     };
 
     // Prompt asking for a comprehensive market trend analysis and a 6-month historical trend projection
-    const prompt = `Fais une analyse comparative approfondie de la tendance du marché, de l'intérêt actuel des consommateurs, de l'adoption et de l'évolution récente pour les deux produits, services, marques ou concepts suivants :
+    const prompt = `Fais une analyse comparative approfondie et détaillée du profil, des capacités, des systèmes compatibles, de l'utilité et de la fiche technique pour :
 1. "${termA}"
 2. "${termB}"
 
 Catégorie / Contexte de la comparaison : ${categoryLabel}
 
-Tu dois obligatoirement effectuer une recherche en ligne via Google Search pour obtenir les données, les actualités et les tendances du marché les plus récentes et fiables (pour l'année en cours).
+Tu dois obligatoirement effectuer une recherche en ligne via Google Search pour obtenir les données, les fiches techniques exactes, les actualités et les tendances du marché les plus récentes et fiables.
 
-Ta réponse DOIT être un objet JSON valide rédigé en français et respectant scrupuleusement la structure suivante (aucun texte d'introduction ou de conclusion en dehors du JSON) :
+Ta réponse DOIT être un objet JSON valide rédigé dans la langue principale de l'utilisateur (${userLang}) et respectant scrupuleusement la structure suivante (aucun texte d'introduction ou de conclusion en dehors du JSON) :
 {
   "termA": {
     "name": "${termA}",
-    "description": "Brève description claire, synthétique et actuelle (max 120 caractères)",
+    "typeLabel": "Type exact (ex: Smartphone / SaaS / Service Streaming / Voiture Électrique / Console / Service Financier)",
+    "description": "Synthèse claire, synthétique et actuelle (max 180 caractères)",
     "marketShare": "Estimation de sa part de marché, popularité relative ou taux d'adoption actuel",
     "trendDirection": "up" | "down" | "stable",
-    "trendScore": 85, // Note sur 100 de la popularité/intérêt actuel du public
+    "trendScore": 85,
+    "capabilities": ["Capacité / Fonctionnalité majeure 1", "Capacité 2", "Capacité 3", "Capacité 4"],
+    "useCasesAndUtility": "Description de l'utilité principale, cas d'usage typiques et public cible",
+    "systemsAndPlatforms": ["Système/OS/Environnement compatible 1", "Plateforme/Canal 2", "Écosystème/Réseau 3"],
+    "businessModel": "Description du modèle économique / tarification (ex: Gratuit avec achats, Abonnement Mensuel, Achat Unique)",
+    "technicalSpecs": [
+      {"label": "Nom de la spec 1 (ex: Processeur / Moteur / Résolution / Norme)", "value": "Valeur précise"},
+      {"label": "Nom de la spec 2 (ex: Autonomie / Capacité / Bande passante / SLA)", "value": "Valeur précise"},
+      {"label": "Nom de la spec 3 (ex: Connectivité / Protocoles / Dimensions)", "value": "Valeur précise"},
+      {"label": "Nom de la spec 4 (ex: Sécurité / Chiffrement / Certification)", "value": "Valeur précise"},
+      {"label": "Nom de la spec 5 (ex: Formats / Compatibilité)", "value": "Valeur précise"}
+    ],
     "pros": ["Point fort majeur 1", "Point fort majeur 2", "Point fort majeur 3"],
     "cons": ["Point faible ou limitation 1", "Point faible 2", "Point faible 3"],
-    "monthlyData": [70, 72, 75, 80, 83, 85] // Tableau de exactement 6 nombres représentant l'indice d'intérêt mensuel de Janvier à Juin (échelle de 0 à 100)
+    "monthlyData": [70, 72, 75, 80, 83, 85]
   },
   "termB": {
     "name": "${termB}",
-    "description": "Brève description claire, synthétique et actuelle (max 120 caractères)",
+    "typeLabel": "Type exact (ex: Smartphone / SaaS / Service Streaming / Voiture Électrique / Console / Service Financier)",
+    "description": "Synthèse claire, synthétique et actuelle (max 180 caractères)",
     "marketShare": "Estimation de sa part de marché, popularité relative ou taux d'adoption actuel",
     "trendDirection": "up" | "down" | "stable",
-    "trendScore": 65, // Note sur 100 de la popularité/intérêt actuel du public
+    "trendScore": 65,
+    "capabilities": ["Capacité / Fonctionnalité majeure 1", "Capacité 2", "Capacité 3", "Capacité 4"],
+    "useCasesAndUtility": "Description de l'utilité principale, cas d'usage typiques et public cible",
+    "systemsAndPlatforms": ["Système/OS/Environnement compatible 1", "Plateforme/Canal 2", "Écosystème/Réseau 3"],
+    "businessModel": "Description du modèle économique / tarification",
+    "technicalSpecs": [
+      {"label": "Nom de la spec 1", "value": "Valeur précise"},
+      {"label": "Nom de la spec 2", "value": "Valeur précise"},
+      {"label": "Nom de la spec 3", "value": "Valeur précise"},
+      {"label": "Nom de la spec 4", "value": "Valeur précise"},
+      {"label": "Nom de la spec 5", "value": "Valeur précise"}
+    ],
     "pros": ["Point fort majeur 1", "Point fort majeur 2", "Point fort majeur 3"],
     "cons": ["Point faible ou limitation 1", "Point faible 2", "Point faible 3"],
-    "monthlyData": [50, 52, 55, 58, 62, 65] // Tableau de exactement 6 nombres représentant l'indice d'intérêt mensuel de Janvier à Juin (échelle de 0 à 100)
+    "monthlyData": [50, 52, 55, 58, 62, 65]
   },
   "comparisonSummary": "Analyse synthétique objective expliquant l'état de la confrontation, les dynamiques actuelles de marché, et la tendance future à court/moyen terme.",
   "keyFactors": ["Facteur clé 1 influençant cette comparaison (ex: Prix, Accessibilité)", "Facteur clé 2", "Facteur clé 3"]

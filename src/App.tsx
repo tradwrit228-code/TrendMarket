@@ -16,7 +16,16 @@ import {
   Lightbulb,
   Layers,
   RefreshCw,
-  Award
+  Award,
+  Zap,
+  Cpu,
+  Target,
+  CreditCard,
+  Package,
+  Sliders,
+  FileText,
+  Globe,
+  ShieldCheck
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -32,6 +41,7 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { CompareData, generateClientFallbackData } from './lib/fallbackData';
+import { performDirectWebSearch } from './lib/directWebSearch';
 
 // Popular sample suggestions
 const POPULAR_COMPARISONS = [
@@ -48,6 +58,8 @@ export default function App() {
   const [termA, setTermA] = useState<string>('Netflix');
   const [termB, setTermB] = useState<string>('Disney+');
   const [category, setCategory] = useState<string>('Streaming & Médias');
+  const [searchMode, setSearchMode] = useState<'direct_web' | 'ai'>('direct_web');
+  const [showSources, setShowSources] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingStep, setLoadingStep] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +107,10 @@ export default function App() {
     handleCompare(true);
   }, []);
 
-  const safeFetchCompare = async (queryA: string, queryB: string, queryCat: string): Promise<CompareData> => {
+  const safeFetchCompare = async (queryA: string, queryB: string, queryCat: string, modeOverride?: 'direct_web' | 'ai'): Promise<CompareData> => {
+    const activeMode = modeOverride || searchMode;
+    const userLang = typeof navigator !== 'undefined' ? (navigator.language || 'fr-FR') : 'fr-FR';
+
     try {
       const response = await fetch('/api/compare', {
         method: 'POST',
@@ -105,15 +120,25 @@ export default function App() {
         body: JSON.stringify({
           termA: queryA,
           termB: queryB,
-          category: queryCat
+          category: queryCat,
+          mode: activeMode,
+          useDirectWeb: activeMode === 'direct_web',
+          userLang
         }),
       });
 
       const contentType = response.headers.get('content-type') || '';
       
-      // If the response is HTML (e.g. Vercel static routing 404/500 or proxy error page), do not attempt response.json()
+      // If the response is HTML (e.g. static routing or proxy error page), fallback to direct web or client generator
       if (!contentType.includes('application/json')) {
-        console.warn("Received non-JSON response from server (e.g. Vercel deployment HTML page). Utilizing smart client-side analysis engine.");
+        console.warn("Received non-JSON response from server. Utilizing smart web analysis engine.");
+        if (activeMode === 'direct_web') {
+          try {
+            return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
+          } catch (e) {
+            return generateClientFallbackData(queryA, queryB, queryCat);
+          }
+        }
         return generateClientFallbackData(queryA, queryB, queryCat);
       }
 
@@ -124,12 +149,26 @@ export default function App() {
           return data;
         }
         console.warn("Server responded with error status, activating local comparison model:", data.error);
+        if (activeMode === 'direct_web') {
+          try {
+            return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
+          } catch (e) {
+            return generateClientFallbackData(queryA, queryB, queryCat);
+          }
+        }
         return generateClientFallbackData(queryA, queryB, queryCat);
       }
 
       return data;
     } catch (fetchError) {
-      console.warn("Network or JSON parsing error detected. Executing client-side fallback:", fetchError);
+      console.warn("Network error. Executing client-side fallback:", fetchError);
+      if (activeMode === 'direct_web') {
+        try {
+          return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
+        } catch (e) {
+          return generateClientFallbackData(queryA, queryB, queryCat);
+        }
+      }
       return generateClientFallbackData(queryA, queryB, queryCat);
     }
   };
@@ -263,6 +302,42 @@ export default function App() {
 
           {/* MAIN COMPARATOR FORM */}
           <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 text-left max-w-3xl mx-auto shadow-sm">
+            
+            {/* SEARCH ENGINE MODE SELECTOR (Direct Web vs AI) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-5 pb-3 border-b border-slate-200/60 dark:border-slate-800/60">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-blue-500" />
+                Moteur de Récupération :
+              </span>
+              <div className="inline-flex p-1 bg-slate-200/70 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSearchMode('direct_web')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    searchMode === 'direct_web'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>🌐 Direct Web (Sans IA)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSearchMode('ai')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    searchMode === 'ai'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>✨ Analyse IA (Gemini Grounding)</span>
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
               
               {/* Product A Input */}
@@ -443,7 +518,35 @@ export default function App() {
       {!loading && result && (
         <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
           
-          {result.isFallback && (
+          {result.isDirectWebSearch && (
+            <div className="mb-6 p-4 rounded-xl border border-blue-200/60 bg-blue-50/70 text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200 flex items-center justify-between gap-3 text-xs sm:text-sm shadow-sm">
+              <div className="flex items-start gap-3">
+                <Globe className="w-5 h-5 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+                <div>
+                  <p className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2 flex-wrap">
+                    <span>Recherche Web Directe (Sans IA)</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-200/80 dark:bg-blue-900/80 text-blue-900 dark:text-blue-100">
+                      Information Pure
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-slate-600 dark:text-slate-300 leading-relaxed">
+                    Les fiches, synthèses et données ci-dessous affichent directement l'information consolidée en temps réel.
+                  </p>
+                </div>
+              </div>
+
+              {result.groundingSources && result.groundingSources.length > 0 && (
+                <button
+                  onClick={() => setShowSources(!showSources)}
+                  className="shrink-0 px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-800 bg-white dark:bg-blue-900/40 text-blue-700 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/80 transition-all font-semibold text-xs cursor-pointer"
+                >
+                  {showSources ? "Masquer les liens sources" : "Afficher les liens sources"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {result.isFallback && !result.isDirectWebSearch && (
             <div className="mb-6 p-4 rounded-xl border border-amber-200/50 bg-amber-50/60 text-amber-900 dark:border-amber-950/40 dark:bg-amber-950/20 dark:text-amber-200 flex items-start gap-3 text-xs sm:text-sm shadow-sm">
               <Sparkles className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
               <div>
@@ -585,23 +688,32 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SIDE-BY-SIDE ANALYSES CARD (Detailing pros/cons/scores) */}
+              {/* SIDE-BY-SIDE ANALYSES CARD (Detailing pros/cons/capabilities) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* TERM A DETAILS */}
                 <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-3.5">
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
                           <h3 className="font-extrabold text-xl text-slate-900 dark:text-white leading-tight">
                             {result.termA.name}
                           </h3>
                         </div>
-                        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mt-1">
-                          Part de marché / Adoption : {result.termA.marketShare}
-                        </p>
+                        
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                          {result.termA.typeLabel && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-900/50">
+                              <Package className="w-3 h-3" />
+                              {result.termA.typeLabel}
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                            Adoption : {result.termA.marketShare}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Direction badge */}
@@ -619,9 +731,27 @@ export default function App() {
                       </span>
                     </div>
 
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
+                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
                       {result.termA.description}
                     </p>
+
+                    {/* Capabilities list if available */}
+                    {result.termA.capabilities && result.termA.capabilities.length > 0 && (
+                      <div className="space-y-2.5 mb-5 bg-blue-50/40 dark:bg-blue-950/20 p-3.5 rounded-xl border border-blue-100/60 dark:border-blue-900/30">
+                        <span className="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-blue-500" />
+                          Capacités & Fonctionnalités clés
+                        </span>
+                        <div className="space-y-1.5">
+                          {result.termA.capabilities.map((cap, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
+                              <span className="text-blue-500 font-bold shrink-0">•</span>
+                              <span>{cap}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Pros list */}
                     <div className="space-y-3 mb-5">
@@ -662,16 +792,25 @@ export default function App() {
                 <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-3.5">
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
                           <h3 className="font-extrabold text-xl text-slate-900 dark:text-white leading-tight">
                             {result.termB.name}
                           </h3>
                         </div>
-                        <p className="text-xs font-semibold text-pink-600 dark:text-pink-400 mt-1">
-                          Part de marché / Adoption : {result.termB.marketShare}
-                        </p>
+
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                          {result.termB.typeLabel && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-pink-50 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 border border-pink-200/50 dark:border-pink-900/50">
+                              <Package className="w-3 h-3" />
+                              {result.termB.typeLabel}
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-pink-600 dark:text-pink-400">
+                            Adoption : {result.termB.marketShare}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Direction badge */}
@@ -689,9 +828,27 @@ export default function App() {
                       </span>
                     </div>
 
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
+                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
                       {result.termB.description}
                     </p>
+
+                    {/* Capabilities list if available */}
+                    {result.termB.capabilities && result.termB.capabilities.length > 0 && (
+                      <div className="space-y-2.5 mb-5 bg-pink-50/40 dark:bg-pink-950/20 p-3.5 rounded-xl border border-pink-100/60 dark:border-pink-900/30">
+                        <span className="text-xs font-bold text-pink-700 dark:text-pink-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-pink-500" />
+                          Capacités & Fonctionnalités clés
+                        </span>
+                        <div className="space-y-1.5">
+                          {result.termB.capabilities.map((cap, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
+                              <span className="text-pink-500 font-bold shrink-0">•</span>
+                              <span>{cap}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Pros list */}
                     <div className="space-y-3 mb-5">
@@ -730,6 +887,216 @@ export default function App() {
 
               </div>
 
+              {/* DETAILED PROFILES CARD (Utility, Systems & Platforms, Pricing / Business Model) */}
+              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-2 mb-6 border-b border-slate-100 dark:border-slate-900 pb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                      <Sliders className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                        Fiches Détaillées : Profils, Systèmes & Utilité
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Analyse structurelle des cas d'usage, écosystèmes et modèles économiques
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* ITEM A DEEP PROFILE */}
+                  <div className="space-y-4 bg-slate-50/50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
+                      <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                        Fiche Profil - {result.termA.name}
+                      </h3>
+                    </div>
+
+                    {/* Utilité / Target Audience */}
+                    {result.termA.useCasesAndUtility && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Target className="w-3.5 h-3.5 text-blue-500" />
+                          Utilité Principale & Public Cible
+                        </span>
+                        <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/40 dark:border-slate-800/40">
+                          {result.termA.useCasesAndUtility}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Systems & Platforms */}
+                    {result.termA.systemsAndPlatforms && result.termA.systemsAndPlatforms.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5 text-blue-500" />
+                          Systèmes, Plateformes & Canaux
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {result.termA.systemsAndPlatforms.map((sys, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                              {sys}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Business Model */}
+                    {result.termA.businessModel && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <CreditCard className="w-3.5 h-3.5 text-blue-500" />
+                          Modèle Économique & Accès
+                        </span>
+                        <p className="text-xs sm:text-sm font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/40 px-3 py-2 rounded-lg border border-blue-200/40 dark:border-blue-900/40">
+                          {result.termA.businessModel}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ITEM B DEEP PROFILE */}
+                  <div className="space-y-4 bg-slate-50/50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-pink-500 shrink-0" />
+                      <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                        Fiche Profil - {result.termB.name}
+                      </h3>
+                    </div>
+
+                    {/* Utilité / Target Audience */}
+                    {result.termB.useCasesAndUtility && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Target className="w-3.5 h-3.5 text-pink-500" />
+                          Utilité Principale & Public Cible
+                        </span>
+                        <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/40 dark:border-slate-800/40">
+                          {result.termB.useCasesAndUtility}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Systems & Platforms */}
+                    {result.termB.systemsAndPlatforms && result.termB.systemsAndPlatforms.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5 text-pink-500" />
+                          Systèmes, Plateformes & Canaux
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {result.termB.systemsAndPlatforms.map((sys, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                              {sys}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Business Model */}
+                    {result.termB.businessModel && (
+                      <div className="space-y-1.5">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <CreditCard className="w-3.5 h-3.5 text-pink-500" />
+                          Modèle Économique & Accès
+                        </span>
+                        <p className="text-xs sm:text-sm font-semibold text-pink-700 dark:text-pink-300 bg-pink-50/60 dark:bg-pink-950/40 px-3 py-2 rounded-lg border border-pink-200/40 dark:border-pink-900/40">
+                          {result.termB.businessModel}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              </div>
+
+              {/* TECHNICAL DATASHEETS (Fiches Techniques) */}
+              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-2 mb-6 border-b border-slate-100 dark:border-slate-900 pb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        Fiches Techniques Comparatives
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Spécifications détaillées, caractéristiques techniques, normes et performances
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* FICHE TECHNIQUE A */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                        Fiche Technique : {result.termA.name}
+                      </h3>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 dark:divide-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 rounded-xl overflow-hidden bg-slate-50/30 dark:bg-slate-900/20">
+                      {result.termA.technicalSpecs && result.termA.technicalSpecs.length > 0 ? (
+                        result.termA.technicalSpecs.map((spec, idx) => (
+                          <div key={idx} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+                            <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0 sm:w-2/5">
+                              {spec.label}
+                            </span>
+                            <span className="font-medium text-slate-900 dark:text-slate-200 text-left sm:text-right sm:w-3/5">
+                              {spec.value}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-4 text-xs text-slate-500 italic">
+                          Données techniques standardisées pour {result.termA.name}.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* FICHE TECHNIQUE B */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
+                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                        Fiche Technique : {result.termB.name}
+                      </h3>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 dark:divide-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 rounded-xl overflow-hidden bg-slate-50/30 dark:bg-slate-900/20">
+                      {result.termB.technicalSpecs && result.termB.technicalSpecs.length > 0 ? (
+                        result.termB.technicalSpecs.map((spec, idx) => (
+                          <div key={idx} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+                            <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0 sm:w-2/5">
+                              {spec.label}
+                            </span>
+                            <span className="font-medium text-slate-900 dark:text-slate-200 text-left sm:text-right sm:w-3/5">
+                              {spec.value}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-4 text-xs text-slate-500 italic">
+                          Données techniques standardisées pour {result.termB.name}.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
             </div>
 
             {/* RIGHT COLUMN: SYNTHESIS & VERIFIED SOURCES */}
@@ -759,21 +1126,29 @@ export default function App() {
                 </div>
               </div>
 
-              {/* REAL-TIME SOURCES SCAN */}
-              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-ping" />
-                  <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
-                    Sources Web Vérifiées
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                  Ces sources issues du scraping sémantique ont servi d'appui pour consolider l'analyse :
-                </p>
+              {/* REAL-TIME SOURCES SCAN (Hidden by default, toggled on demand) */}
+              {showSources && result.groundingSources && result.groundingSources.length > 0 && (
+                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-ping" />
+                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                        Sources Web Rattachées
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => setShowSources(false)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline cursor-pointer"
+                    >
+                      Masquer
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                    Liens et références externes utilisés pour la consolidation :
+                  </p>
 
-                <div className="space-y-2.5">
-                  {result.groundingSources && result.groundingSources.length > 0 ? (
-                    result.groundingSources.map((src, i) => (
+                  <div className="space-y-2.5">
+                    {result.groundingSources.map((src, i) => (
                       <a
                         key={i}
                         href={src.url}
@@ -791,15 +1166,10 @@ export default function App() {
                           </span>
                         </div>
                       </a>
-                    ))
-                  ) : (
-                    <div className="text-center py-6 text-xs text-slate-400 dark:text-slate-500">
-                      <HelpCircle className="w-8 h-8 text-slate-300 dark:text-slate-800 mx-auto mb-2" />
-                      Pas de liens additionnels trouvés. Données consolidées de synthèse.
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
             </div>
 
@@ -815,7 +1185,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5 text-[11px] text-emerald-500 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              API Grounding Active (Scraping Réduit)
+              Information Consolidée en Temps Réel
             </span>
           </div>
         </div>

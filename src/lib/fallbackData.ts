@@ -1,26 +1,31 @@
+export interface TechnicalSpec {
+  label: string;
+  value: string;
+}
+
+export interface ItemProfile {
+  name: string;
+  typeLabel: string;
+  description: string;
+  marketShare: string;
+  trendDirection: 'up' | 'down' | 'stable';
+  trendScore: number;
+  capabilities: string[];
+  useCasesAndUtility: string;
+  systemsAndPlatforms: string[];
+  businessModel: string;
+  technicalSpecs?: TechnicalSpec[];
+  pros: string[];
+  cons: string[];
+  monthlyData: number[];
+}
+
 export interface CompareData {
   isFallback?: boolean;
   isStandardAIFallback?: boolean;
-  termA: {
-    name: string;
-    description: string;
-    marketShare: string;
-    trendDirection: 'up' | 'down' | 'stable';
-    trendScore: number;
-    pros: string[];
-    cons: string[];
-    monthlyData: number[];
-  };
-  termB: {
-    name: string;
-    description: string;
-    marketShare: string;
-    trendDirection: 'up' | 'down' | 'stable';
-    trendScore: number;
-    pros: string[];
-    cons: string[];
-    monthlyData: number[];
-  };
+  isDirectWebSearch?: boolean;
+  termA: ItemProfile;
+  termB: ItemProfile;
   comparisonSummary: string;
   keyFactors: string[];
   groundingSources?: Array<{ title: string; url: string }>;
@@ -60,10 +65,32 @@ export function generateClientFallbackData(termA: string, termB: string, categor
     isFallback: true,
     termA: {
       name: termA,
-      description: `Sujet majeur de la catégorie ${cat}. Représente un choix de référence bénéficiant d'une grande communauté et d'un intérêt soutenu.`,
-      marketShare: `${20 + (hashA % 30)}% d'indice relatif`,
+      typeLabel: "Produit / Service Majeur",
+      description: `Sujet phare de la catégorie ${cat}. Représente une solution incontournable bénéficiant d'un ancrage solide sur le marché.`,
+      marketShare: `${20 + (hashA % 30)}% d'adoption sectorielle`,
       trendDirection: dirA,
       trendScore: scoreA,
+      capabilities: [
+        "Traitement haute performance et réactivité avancée",
+        "Interface utilisateur intuitive et personnalisable",
+        "Sécurité renforcée et conformité aux standards actuels",
+        "Interopérabilité fluide avec les outils tiers"
+      ],
+      useCasesAndUtility: `Besoins professionnels et grand public recherchant une solution éprouvée pour optimiser les performances dans le secteur ${cat}.`,
+      systemsAndPlatforms: [
+        "Web (Navigateurs modernes Chrome, Safari, Firefox)",
+        "Applications Mobiles (iOS, Android)",
+        "Infrastructures Cloud & API Rest/GraphQL"
+      ],
+      businessModel: "Abonnement Freemium / Accès sur mesure",
+      technicalSpecs: [
+        { label: "Classification", value: `Solution Standard ${cat}` },
+        { label: "Architecture / Moteur", value: "Cloud Distribue / Microservices HA" },
+        { label: "Sécurité & Normes", value: "TLS 1.3, Chiffrement AES-256, ISO 27001" },
+        { label: "Disponibilité (SLA)", value: "99.9% d'uptime garanti" },
+        { label: "Formats & Protocoles", value: "REST API, WebSockets, JSON, OAuth2" },
+        { label: "Support & Maintenance", value: "Support 24/7 & Mises a jour mensuelles" }
+      ],
       pros: [
         "Positionnement de marché solide et reconnaissance de marque",
         "Écosystème actif et intégrations nombreuses",
@@ -78,10 +105,32 @@ export function generateClientFallbackData(termA: string, termB: string, categor
     },
     termB: {
       name: termB,
-      description: `Alternative populaire et compétitive dans le domaine ${cat}. Très appréciée pour sa réactivité et sa polyvalence.`,
-      marketShare: `${15 + (hashB % 25)}% d'indice relatif`,
+      typeLabel: "Alternative & Solution Compétitive",
+      description: `Alternative dynamique dans la catégorie ${cat}. Très appréciée pour son agilité, ses tarifs attractifs et ses innovations.`,
+      marketShare: `${15 + (hashB % 25)}% d'adoption sectorielle`,
       trendDirection: dirB,
       trendScore: scoreB,
+      capabilities: [
+        "Déploiement rapide et simplicité d'installation",
+        "Tarification très compétitive et flexibilité d'usage",
+        "Fonctionnalités modulaires adaptables aux besoins",
+        "Support client réactif et communauté engagée"
+      ],
+      useCasesAndUtility: `Utilisateurs, PME et passionnés cherchant une alternative moderne et rentable avec une grande souplesse dans ${cat}.`,
+      systemsAndPlatforms: [
+        "Plateformes Multi-OS (Windows, macOS, Linux)",
+        "Service Cloud natif & Apps dédiées",
+        "Connecteurs et webhooks universels"
+      ],
+      businessModel: "Abonnement modulaire / Licence flexible",
+      technicalSpecs: [
+        { label: "Classification", value: `Solution Modulaire ${cat}` },
+        { label: "Architecture / Moteur", value: "Négat-Cloud / Serverless Edge" },
+        { label: "Sécurité & Normes", value: "RGPD Compliant, HTTPS, Auth2.0" },
+        { label: "Disponibilité (SLA)", value: "99.5% d'uptime moyen" },
+        { label: "Formats & Protocoles", value: "Webhooks, OpenAPI, SDK Multi-langages" },
+        { label: "Support & Maintenance", value: "Support Ticket 5j/7 & Communaute active" }
+      ],
       pros: [
         "Rapport qualité-prix ou accessibilité très avantageuse",
         "Fonctionnalités modernes adaptées aux tendances récentes",

@@ -4,6 +4,9 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { performDirectWebSearch } from "./src/lib/directWebSearch.ts";
+import { CompareRequestSchema } from "./src/lib/schemas/comparison.ts";
+import { logger } from "./src/lib/infrastructure/logger.ts";
+import { cacheManager } from "./src/lib/infrastructure/cacheManager.ts";
 
 dotenv.config();
 
@@ -30,32 +33,40 @@ async function startServer() {
 
   // API Route: Compare any two terms using Google Search Grounding with robust rate-limit fallbacks
   app.post("/api/compare", async (req, res) => {
-    const { termA, termB, category, mode, useDirectWeb, userLang: bodyUserLang } = req.body;
-    if (!termA || !termB) {
-      return res.status(400).json({ error: "Les deux termes à comparer sont requis." });
+    // Validate request schema with Zod
+    const headerLang = req.headers['accept-language'] ? req.headers['accept-language'].split(',')[0] : 'fr-FR';
+    const validation = CompareRequestSchema.safeParse({
+      ...req.body,
+      userLang: req.body?.userLang || headerLang,
+    });
+
+    if (!validation.success) {
+      return res.status(400).json({ 
+        error: "Paramètres de requête invalides.", 
+        details: validation.error.format() 
+      });
     }
 
-    const userLang = bodyUserLang || (req.headers['accept-language'] ? req.headers['accept-language'].split(',')[0] : 'fr-FR');
+    const { termA, termB, category, mode, useDirectWeb, userLang } = validation.data;
     const isDirectMode = mode === 'direct_web' || useDirectWeb === true;
     const categoryLabel = category || "Général";
     const cacheKey = `${termA.toLowerCase().trim()}|${termB.toLowerCase().trim()}|${categoryLabel.toLowerCase().trim()}|${isDirectMode ? 'direct' : 'ai'}|${userLang.slice(0, 2)}`;
 
-    // Check cache first to avoid unnecessary quota consumption
-    const cachedItem = cache.get(cacheKey);
-    if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL_MS)) {
-      console.log(`[API Compare] Cache hit for "${termA}" vs "${termB}" (${isDirectMode ? 'Direct Web' : 'AI'})`);
-      return res.json(cachedItem.data);
+    // Check cache manager
+    const cachedItem = cacheManager.get(cacheKey);
+    if (cachedItem) {
+      logger.logExtraction(termA, termB, isDirectMode ? 'direct_web_cache' : 'ai_cache', true, 0, 0);
+      return res.json(cachedItem);
     }
 
     // Direct Internet Search (100% No AI)
     if (isDirectMode) {
-      console.log(`[API Compare] Direct Web Engine (No AI) for "${termA}" vs "${termB}" in language ${userLang}`);
       try {
         const directResult = await performDirectWebSearch(termA, termB, categoryLabel, userLang);
-        cache.set(cacheKey, { data: directResult, timestamp: Date.now() });
+        cacheManager.set(cacheKey, directResult);
         return res.json(directResult);
-      } catch (err) {
-        console.error("Direct web search failed, continuing to fallback", err);
+      } catch (err: any) {
+        logger.logExtraction(termA, termB, 'direct_web', false, 0, 0, err?.message);
       }
     }
 

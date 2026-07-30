@@ -1,5 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { performDirectWebSearch } from '../src/lib/directWebSearch.js';
+import { CompareRequestSchema } from '../src/lib/schemas/comparison.js';
+import { cacheManager } from '../src/lib/infrastructure/cacheManager.js';
+import { logger } from '../src/lib/infrastructure/logger.js';
 
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -149,28 +152,36 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  const { termA, termB, category, mode, useDirectWeb, userLang: bodyUserLang } = body || {};
-  if (!termA || !termB) {
-    return res.status(400).json({ error: "Les deux termes à comparer sont requis." });
+  const headerLang = req.headers['accept-language'] ? req.headers['accept-language'].split(',')[0] : 'fr-FR';
+  const validation = CompareRequestSchema.safeParse({
+    ...(body || {}),
+    userLang: (body || {}).userLang || headerLang,
+  });
+
+  if (!validation.success) {
+    return res.status(400).json({
+      error: "Paramètres de requête invalides.",
+      details: validation.error.format(),
+    });
   }
 
-  const userLang = bodyUserLang || (req.headers['accept-language'] ? req.headers['accept-language'].split(',')[0] : 'fr-FR');
+  const { termA, termB, category, mode, useDirectWeb, userLang } = validation.data;
   const isDirectMode = mode === 'direct_web' || useDirectWeb === true;
   const categoryLabel = category || "Général";
   const cacheKey = `${termA.toLowerCase().trim()}|${termB.toLowerCase().trim()}|${categoryLabel.toLowerCase().trim()}|${isDirectMode ? 'direct' : 'ai'}|${userLang.slice(0, 2)}`;
 
-  const cachedItem = cache.get(cacheKey);
-  if (cachedItem && Date.now() - cachedItem.timestamp < CACHE_TTL_MS) {
-    return res.status(200).json(cachedItem.data);
+  const cachedItem = cacheManager.get(cacheKey);
+  if (cachedItem) {
+    return res.status(200).json(cachedItem);
   }
 
   if (isDirectMode) {
     try {
       const directResult = await performDirectWebSearch(termA, termB, categoryLabel, userLang);
-      cache.set(cacheKey, { data: directResult, timestamp: Date.now() });
+      cacheManager.set(cacheKey, directResult);
       return res.status(200).json(directResult);
-    } catch (err) {
-      console.warn("Direct web search error in serverless API handler:", err);
+    } catch (err: any) {
+      logger.logExtraction(termA, termB, 'direct_web', false, 0, 0, err?.message);
     }
   }
 

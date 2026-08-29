@@ -1,8 +1,12 @@
 import { AuditLog, AuditLogSchema } from '../schemas/comparison';
 
-class StructuredLogger {
+export class StructuredLogger {
   private logs: AuditLog[] = [];
-  private maxLogs = 200;
+  private maxLogs: number;
+
+  constructor(maxLogs = 200) {
+    this.maxLogs = maxLogs;
+  }
 
   public logExtraction(
     queryA: string,
@@ -35,12 +39,15 @@ class StructuredLogger {
     }
 
     const level = success ? 'INFO' : 'WARN';
-    console.log(`[${level}] [${new Date().toISOString()}] Compare Request: "${queryA}" vs "${queryB}" | Mode: ${mode} | ${durationMs}ms | Sources: ${sourcesCount}${error ? ` | Error: ${error}` : ''}`);
+    console.log(`[${level}] [${new Date().toISOString()}] Compare: "${queryA}" vs "${queryB}" | Mode: ${mode} | ${durationMs}ms | Sources: ${sourcesCount}${error ? ` | Error: ${error}` : ''}`);
 
     return logEntry;
   }
 
-  public getRecentLogs(): AuditLog[] {
+  public getRecentLogs(limit?: number): AuditLog[] {
+    if (typeof limit === 'number' && limit > 0) {
+      return this.logs.slice(0, limit);
+    }
     return [...this.logs];
   }
 
@@ -57,4 +64,4 @@ class StructuredLogger {
   }
 }
 
-export const logger = new StructuredLogger();
+export const logger = new StructuredLogger(200);

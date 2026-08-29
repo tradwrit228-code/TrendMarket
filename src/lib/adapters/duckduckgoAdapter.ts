@@ -1,10 +1,11 @@
 import * as cheerio from 'cheerio';
-import { DataAdapter, sanitizeText } from './baseAdapter';
+import { DataAdapter, sanitizeText, isValidHttpUrl } from './baseAdapter';
 import { RawSnippet, RawSnippetSchema } from '../schemas/comparison';
 import { externalApiQueue } from '../infrastructure/rateLimiter';
 
 export class DuckDuckGoAdapter implements DataAdapter {
   public name = "DuckDuckGoAdapter";
+  private timeoutMs = 8000;
 
   private getLangCode(userLang: string): string {
     if (!userLang) return 'fr';
@@ -18,14 +19,22 @@ export class DuckDuckGoAdapter implements DataAdapter {
     try {
       const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
       const html = await externalApiQueue.enqueue(async () => {
-        const response = await fetch(searchUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': `${userLang},${langCode};q=0.9,en-US;q=0.8,en;q=0.7`,
-          },
-        });
-        if (!response.ok) throw new Error(`DDG Fetch Error ${response.status}`);
-        return response.text();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+        try {
+          const response = await fetch(searchUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': `${userLang},${langCode};q=0.9,en-US;q=0.8,en;q=0.7`,
+            },
+            signal: controller.signal
+          });
+          if (!response.ok) throw new Error(`DDG Fetch Error ${response.status}`);
+          return await response.text();
+        } finally {
+          clearTimeout(timeoutId);
+        }
       });
 
       const $ = cheerio.load(html);
@@ -45,7 +54,7 @@ export class DuckDuckGoAdapter implements DataAdapter {
           }
         }
 
-        if (title && snippet && rawUrl.startsWith('http')) {
+        if (title && snippet && isValidHttpUrl(rawUrl)) {
           const item = {
             source: "DuckDuckGo Web Search",
             title,
@@ -60,8 +69,12 @@ export class DuckDuckGoAdapter implements DataAdapter {
           }
         }
       });
-    } catch (err) {
-      console.warn("DuckDuckGoAdapter fetch error:", err);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.warn(`DuckDuckGoAdapter timeout after ${this.timeoutMs}ms`);
+      } else {
+        console.warn("DuckDuckGoAdapter fetch error:", err?.message || err);
+      }
     }
 
     return results;

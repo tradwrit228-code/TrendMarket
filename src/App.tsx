@@ -1153,7 +1153,7 @@ export default function App() {
                         key={i}
                         href={src.url}
                         target="_blank"
-                        rel="referrer"
+                        rel="noopener noreferrer"
                         className="group flex items-start gap-2 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800/70 hover:border-blue-500/40 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-slate-900/30 hover:bg-white dark:hover:bg-slate-950 transition-all duration-200 text-xs"
                       >
                         <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 shrink-0 mt-0.5 transition-colors" />

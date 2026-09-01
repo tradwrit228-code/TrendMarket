@@ -1,6 +1,6 @@
 {
   "name": "TrendMarket",
-  "description": "Suivi et analyse de tendances pour téléphones high-tech selon l'usage.",
+  "description": "Comparateur universel de tendances de marché, parts d'adoption et fiches techniques en temps réel avec moteur d'extraction web et IA.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -11,6 +11,9 @@ import { StructuredLogger } from '../infrastructure/logger';
 import { normalizer } from '../pipeline/normalizer';
 import { metricsCalculator } from '../engine/metricsCalculator';
 import { trendsAdapter } from '../adapters/trendsAdapter';
+import { opportunityScoreEngine } from '../engine/opportunityScoreEngine';
+import { generateDynamicMarketAnalysis, generateBIMemo } from '../data/marketIntelligenceData';
+import { SECTORS, GEO_SCOPES } from '../types/marketIntelligence';
 
 let passedCount = 0;
 let failedCount = 0;
@@ -167,6 +170,54 @@ async function runTestSuite() {
     assert(logs.length === 1, "Logger records audit extraction");
     assert(logs[0].queryA === "TermX" && logs[0].queryB === "TermY", "Logger stores correct query pair");
     assert(logs[0].durationMs === 45, "Logger records duration");
+  }
+
+  // --- 7. MARKET INTELLIGENCE & OPPORTUNITY SCORE ENGINE ---
+  console.log("\n🔍 Group 7: Opportunity Score Engine & African Market Intelligence");
+  {
+    // Taxonomies
+    assert(SECTORS.length === 15, "Sectors catalog contains 15 required sectors");
+    assert(Boolean(GEO_SCOPES['togo'] && GEO_SCOPES['west_africa'] && GEO_SCOPES['benin']), "Geo scopes include Togo, Benin, and West Africa");
+
+    // Opportunity Score Calculation
+    const scoreResult = opportunityScoreEngine.calculate({
+      demandMomentum: 85,
+      growthRate: 75,
+      marketInterest: 80,
+      competitiveGap: 70,
+      searchMomentum: 75,
+      marketSaturation: 25,
+      riskFactor: 30,
+    });
+
+    assert(scoreResult.totalScore >= 0 && scoreResult.totalScore <= 100, "Opportunity score produces clamped 0-100 total score");
+    assert(scoreResult.totalScore >= 65, "High traction parameters produce high opportunity score");
+    assert(scoreResult.rating === 'high' || scoreResult.rating === 'exceptional', "Rating label corresponds to score bracket");
+    assert(scoreResult.explanation.length > 10, "Score includes explanatory interpretation");
+
+    // Penalty verification: High saturation & risk should lower the score
+    const penalizedResult = opportunityScoreEngine.calculate({
+      demandMomentum: 50,
+      growthRate: 40,
+      marketInterest: 40,
+      competitiveGap: 20,
+      searchMomentum: 30,
+      marketSaturation: 90,
+      riskFactor: 85,
+    });
+    assert(penalizedResult.totalScore < scoreResult.totalScore, "High saturation and risk significantly penalize opportunity score");
+
+    // Market Analysis Generator for Togo / African commodities
+    const maniocReport = generateDynamicMarketAnalysis("Manioc", "agroalimentaire", "togo");
+    assert(maniocReport.marketName.length > 0, "Market analysis generator returns report with marketName");
+    assert(maniocReport.seasonalityCurve.length >= 4, "Market report includes seasonality data points");
+    assert(maniocReport.keyActors.length >= 2, "Market report identifies key market actors");
+    assert(maniocReport.actionableRecommendations.length >= 3, "Market report provides 3 actionable phases");
+
+    // B2B Strategic Memo Generator
+    const biMemo = generateBIMemo("agroalimentaire", "togo", "Manioc", "high_potential_market");
+    assert(biMemo.executionRoadmap.length === 3, "B2B Memo produces 3-step execution roadmap");
+    assert(Boolean(biMemo.suggestedPricingStructure.standard), "B2B Memo includes pricing recommendation");
   }
 
   console.log("\n==================================================");

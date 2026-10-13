@@ -1,62 +1,165 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { TopBar, ActiveTab } from './components/navigation/TopBar';
+import { MobileTabBar } from './components/navigation/MobileTabBar';
+import { ExecutiveDashboard } from './components/dashboard/ExecutiveDashboard';
+import { MarketExplorer } from './components/explorer/MarketExplorer';
+import { MarketAnalysisView } from './components/analysis/MarketAnalysisView';
+import { OpportunityDetectorView } from './components/opportunities/OpportunityDetectorView';
+import { ComparisonView } from './components/compare/ComparisonView';
+import { WatchlistView } from './components/watchlist/WatchlistView';
+import { BusinessIntelligenceView } from './components/b2b/BusinessIntelligenceView';
+import { HistoryReportsView } from './components/reports/HistoryReportsView';
+import { MonetizationModal } from './components/pricing/MonetizationModal';
+import { DataSourcesModal } from './components/provenance/DataSourcesModal';
 import { 
-  Search, 
-  ArrowRightLeft, 
-  TrendingUp, 
-  TrendingDown, 
-  Minus, 
-  Sun, 
-  Moon, 
-  CheckCircle2, 
-  XCircle, 
-  Sparkles, 
-  Info, 
-  ExternalLink, 
-  Lightbulb,
-  Layers,
-  RefreshCw,
-  Award,
-  Zap,
-  Cpu,
-  Target,
-  CreditCard,
-  Package,
-  Sliders,
-  FileText,
-  Globe,
-  Share2,
-  Download,
-  Copy,
-  Check,
-  Printer,
-  X
-} from 'lucide-react';
+  GeoRegion, 
+  SectorId, 
+  MarketTrendItem, 
+  OpportunitySignal, 
+  MarketAnalysisReport, 
+  WatchlistItem, 
+  SavedAnalysis 
+} from './lib/types/marketIntelligence';
 import { 
-  ResponsiveContainer, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend,
-  AreaChart,
-  Area
-} from 'recharts';
-import { motion, AnimatePresence } from 'motion/react';
+  INITIAL_MARKET_TRENDS, 
+  INITIAL_OPPORTUNITY_SIGNALS, 
+  generateDynamicMarketAnalysis 
+} from './lib/data/marketIntelligenceData';
 import { CompareData, generateClientFallbackData } from './lib/fallbackData';
 import { performDirectWebSearch } from './lib/directWebSearch';
 
-// Popular sample suggestions
-const POPULAR_COMPARISONS = [
-  { termA: "Netflix", termB: "Disney+", label: "Streaming", category: "Streaming & Médias" },
-  { termA: "Bitcoin", termB: "Or (Gold)", label: "Finance", category: "Crypto & Finance" },
-  { termA: "Voitures Électriques", termB: "Voitures Hybrides", label: "Automobile", category: "Automobile" },
-  { termA: "Python", termB: "Rust", label: "Développement", category: "Développement & Outils" },
-  { termA: "TikTok", termB: "Instagram", label: "Réseaux Sociaux", category: "Services & Plateformes" },
-  { termA: "Viande Végétale", termB: "Viande Animale", label: "Alimentation", category: "Alimentation & Biens" }
-];
-
 export default function App() {
-  // --- STATE INITIALIZATION WITH URL QUERY PARAMS ---
+  // --- THEME STATE ---
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('color-theme');
+      if (savedTheme) return savedTheme === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('color-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('color-theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  // --- ACTIVE TAB ROUTING ---
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab') as ActiveTab;
+      if (tab && ['dashboard', 'explorer', 'analysis', 'compare', 'opportunities', 'watchlist', 'bi_memo', 'reports'].includes(tab)) {
+        return tab;
+      }
+    }
+    return 'dashboard';
+  });
+
+  // --- GEOGRAPHIC SCOPE STATE ---
+  const [selectedRegion, setSelectedRegion] = useState<GeoRegion>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const r = params.get('region') as GeoRegion;
+      if (r) return r;
+    }
+    return 'togo'; // Default to Togo as primary emerging anchor
+  });
+
+  // --- MARKET TRENDS & OPPORTUNITIES STATE ---
+  const [trends, setTrends] = useState<MarketTrendItem[]>(INITIAL_MARKET_TRENDS);
+  const [opportunities, setOpportunities] = useState<OpportunitySignal[]>(INITIAL_OPPORTUNITY_SIGNALS);
+
+  // Fetch live trending items on mount or region change
+  useEffect(() => {
+    let isMounted = true;
+    const fetchMarketData = async () => {
+      try {
+        const [trendsRes, oppRes] = await Promise.all([
+          fetch(`/api/markets/trending?region=${selectedRegion}`),
+          fetch(`/api/opportunities?region=${selectedRegion}`)
+        ]);
+
+        if (trendsRes.ok) {
+          const trendsJson = await trendsRes.json();
+          if (isMounted && trendsJson.items?.length > 0) {
+            setTrends(trendsJson.items);
+          }
+        }
+
+        if (oppRes.ok) {
+          const oppJson = await oppRes.json();
+          if (isMounted && oppJson.signals?.length > 0) {
+            setOpportunities(oppJson.signals);
+          }
+        }
+      } catch (err) {
+        // Fallback already pre-loaded
+      }
+    };
+
+    fetchMarketData();
+    return () => { isMounted = false; };
+  }, [selectedRegion]);
+
+  // --- SINGLE MARKET ANALYSIS REPORT STATE ---
+  const [analysisReport, setAnalysisReport] = useState<MarketAnalysisReport | null>(() => {
+    return generateDynamicMarketAnalysis('Manioc', 'agroalimentaire', 'togo');
+  });
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Function to trigger Deep-Dive Market Analysis
+  const handleAnalyzeMarket = useCallback(async (marketName: string, sector?: string, region?: string) => {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    setActiveTab('analysis');
+
+    const targetRegion = (region as GeoRegion) || selectedRegion;
+    const targetSector = (sector as SectorId) || 'commerce';
+
+    // Update URL query parameters
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'analysis');
+      url.searchParams.set('market', marketName);
+      url.searchParams.set('region', targetRegion);
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    try {
+      const res = await fetch('/api/market/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          marketName,
+          sector: targetSector,
+          region: targetRegion,
+          useAI: true,
+        }),
+      });
+
+      if (res.ok) {
+        const reportJson = await res.json();
+        setAnalysisReport(reportJson);
+      } else {
+        throw new Error("Erreur de réponse de l'API");
+      }
+    } catch (err: any) {
+      // Deterministic high-accuracy client fallback
+      const fallbackReport = generateDynamicMarketAnalysis(marketName, targetSector, targetRegion);
+      setAnalysisReport(fallbackReport);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [selectedRegion]);
+
+  // --- A/B COMPARISON STATE ---
   const [termA, setTermA] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -81,1384 +184,367 @@ export default function App() {
     return 'Streaming & Médias';
   });
 
-  const [searchMode, setSearchMode] = useState<'direct_web' | 'ai'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const m = params.get('mode');
-      if (m === 'ai') return 'ai';
-    }
-    return 'direct_web';
+  const [searchMode, setSearchMode] = useState<'direct_web' | 'ai'>('direct_web');
+  const [compareResult, setCompareResult] = useState<CompareData | null>(() => {
+    return generateClientFallbackData('Netflix', 'Disney+', 'Streaming & Médias');
   });
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
-  const [showSources, setShowSources] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [loadingStep, setLoadingStep] = useState<number>(0);
-  const [error, setError] = useState<string | null>(null);
-  const [copiedLink, setCopiedLink] = useState<boolean>(false);
-  const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
-  
-  // Loaded results
-  const [result, setResult] = useState<CompareData | null>(null);
+  // Execute A/B Comparison
+  const handleExecuteCompare = useCallback(async () => {
+    if (!termA.trim() || !termB.trim()) return;
+    setCompareLoading(true);
+    setCompareError(null);
 
-  const inputARef = useRef<HTMLInputElement>(null);
-
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    // Deep linking update
     if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('color-theme');
-      if (savedTheme) {
-        return savedTheme === 'dark';
-      }
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'compare');
+      url.searchParams.set('a', termA);
+      url.searchParams.set('b', termB);
+      url.searchParams.set('cat', category);
+      window.history.replaceState({}, '', url.toString());
     }
-    return true; // Default to dark theme as base
-  });
-
-  // --- PERSIST DARK MODE ---
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('color-theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('color-theme', 'light');
-    }
-  }, [isDarkMode]);
-
-  // Loading tips animation helper
-  useEffect(() => {
-    let interval: any;
-    if (loading) {
-      setLoadingStep(0);
-      interval = setInterval(() => {
-        setLoadingStep((prev) => (prev + 1) % 4);
-      }, 2500);
-    }
-    return () => clearInterval(interval);
-  }, [loading]);
-
-  // Keyboard shortcut '/' to focus search
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-        e.preventDefault();
-        inputARef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Update URL Query Parameters to enable instant sharing
-  const syncUrlParams = (tA: string, tB: string, cat: string, mode: string) => {
-    if (typeof window !== 'undefined' && window.history) {
-      const params = new URLSearchParams();
-      params.set('a', tA);
-      params.set('b', tB);
-      params.set('cat', cat);
-      params.set('mode', mode);
-      const newUrl = `${window.location.pathname}?${params.toString()}`;
-      window.history.replaceState({ path: newUrl }, '', newUrl);
-    }
-  };
-
-  const safeFetchCompare = async (queryA: string, queryB: string, queryCat: string, modeOverride?: 'direct_web' | 'ai'): Promise<CompareData> => {
-    const activeMode = modeOverride || searchMode;
-    const userLang = typeof navigator !== 'undefined' ? (navigator.language || 'fr-FR') : 'fr-FR';
 
     try {
       const response = await fetch('/api/compare', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          termA: queryA,
-          termB: queryB,
-          category: queryCat,
-          mode: activeMode,
-          useDirectWeb: activeMode === 'direct_web',
-          userLang
+          termA: termA.trim(),
+          termB: termB.trim(),
+          category: category.trim() || 'Général',
+          mode: searchMode,
+          useDirectWeb: searchMode === 'direct_web',
+          userLang: 'fr-FR',
         }),
       });
 
-      const contentType = response.headers.get('content-type') || '';
-      
-      if (!contentType.includes('application/json')) {
-        console.warn("Received non-JSON response from server. Utilizing smart web analysis engine.");
-        if (activeMode === 'direct_web') {
-          try {
-            return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
-          } catch {
-            return generateClientFallbackData(queryA, queryB, queryCat);
-          }
-        }
-        return generateClientFallbackData(queryA, queryB, queryCat);
-      }
-
+      if (!response.ok) throw new Error("Erreur de confrontation");
       const data = await response.json();
-
-      if (!response.ok) {
-        if (data && typeof data === 'object' && data.termA && data.termB) {
-          return data;
-        }
-        console.warn("Server responded with error status, activating local comparison model:", data.error);
-        if (activeMode === 'direct_web') {
-          try {
-            return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
-          } catch {
-            return generateClientFallbackData(queryA, queryB, queryCat);
-          }
-        }
-        return generateClientFallbackData(queryA, queryB, queryCat);
-      }
-
-      return data;
-    } catch (fetchError) {
-      console.warn("Network error. Executing client-side fallback:", fetchError);
-      if (activeMode === 'direct_web') {
+      setCompareResult(data);
+    } catch (err: any) {
+      if (searchMode === 'direct_web') {
         try {
-          return await performDirectWebSearch(queryA, queryB, queryCat, userLang);
-        } catch {
-          return generateClientFallbackData(queryA, queryB, queryCat);
+          const directData = await performDirectWebSearch(termA, termB, category, 'fr-FR');
+          setCompareResult(directData);
+          setCompareLoading(false);
+          return;
+        } catch (directErr) {
+          // ignore
         }
       }
-      return generateClientFallbackData(queryA, queryB, queryCat);
-    }
-  };
-
-  const handleCompare = async (isInitial = false) => {
-    const queryA = isInitial ? termA.trim() : termA.trim();
-    const queryB = isInitial ? termB.trim() : termB.trim();
-
-    if (!queryA || !queryB) {
-      setError("Veuillez saisir deux termes à comparer.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await safeFetchCompare(queryA, queryB, category);
-      setResult(data);
-      syncUrlParams(queryA, queryB, category, searchMode);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Une erreur inattendue est survenue.");
+      const fallback = generateClientFallbackData(termA, termB, category);
+      setCompareResult(fallback);
     } finally {
-      setLoading(false);
+      setCompareLoading(false);
     }
-  };
+  }, [termA, termB, category, searchMode]);
 
-  // Trigger compare on mount
-  useEffect(() => {
-    handleCompare(true);
-  }, []);
+  // --- WATCHLIST STATE ---
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('tm_watchlist');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: 'wl-1',
+        type: 'market',
+        name: 'Transformation du Manioc',
+        category: 'Agroalimentaire',
+        region: 'togo',
+        currentMomentum: 34,
+        currentScore: 86,
+        addedAt: '12 Octobre 2026',
+        lastCheckedAt: '13 Octobre 2026',
+        alertThreshold: 10,
+        status: 'active'
+      },
+      {
+        id: 'wl-2',
+        type: 'market',
+        name: 'Paiements B2B Mobile Money',
+        category: 'Fintech',
+        region: 'west_africa',
+        currentMomentum: 42,
+        currentScore: 89,
+        addedAt: '10 Octobre 2026',
+        lastCheckedAt: '13 Octobre 2026',
+        alertThreshold: 10,
+        status: 'active'
+      },
+      {
+        id: 'wl-3',
+        type: 'market',
+        name: 'Pompage Solaire Maraîcher',
+        category: 'Énergie',
+        region: 'togo',
+        currentMomentum: 39,
+        currentScore: 87,
+        addedAt: '09 Octobre 2026',
+        lastCheckedAt: '13 Octobre 2026',
+        alertThreshold: 10,
+        status: 'active'
+      }
+    ];
+  });
 
-  const handleSuggestionClick = (sA: string, sB: string, sCat: string) => {
-    setTermA(sA);
-    setTermB(sB);
-    setCategory(sCat);
-    setTimeout(() => {
-      triggerDirectCompare(sA, sB, sCat);
-    }, 50);
-  };
-
-  const triggerDirectCompare = async (queryA: string, queryB: string, queryCat: string) => {
-    setLoading(true);
-    setError(null);
+  const handleToggleWatchlist = (item: any) => {
+    const existingIndex = watchlist.findIndex(w => w.name.toLowerCase() === item.name.toLowerCase());
+    let updated: WatchlistItem[];
+    if (existingIndex >= 0) {
+      updated = watchlist.filter((_, idx) => idx !== existingIndex);
+    } else {
+      const newItem: WatchlistItem = {
+        ...item,
+        id: `wl-${Date.now()}`,
+        addedAt: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+        lastCheckedAt: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+        status: 'active'
+      };
+      updated = [newItem, ...watchlist];
+    }
+    setWatchlist(updated);
     try {
-      const data = await safeFetchCompare(queryA, queryB, queryCat);
-      setResult(data);
-      syncUrlParams(queryA, queryB, queryCat, searchMode);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Impossible de charger la comparaison.");
-    } finally {
-      setLoading(false);
+      localStorage.setItem('tm_watchlist', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
     }
   };
 
-  const handleSwapTerms = () => {
-    const nextA = termB;
-    const nextB = termA;
-    setTermA(nextA);
-    setTermB(nextB);
-    if (result) {
-      triggerDirectCompare(nextA, nextB, category);
+  const handleRemoveWatchlistItem = (id: string) => {
+    const updated = watchlist.filter(w => w.id !== id);
+    setWatchlist(updated);
+    try {
+      localStorage.setItem('tm_watchlist', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
     }
   };
 
-  const handleShareLink = () => {
-    syncUrlParams(termA, termB, category, searchMode);
-    navigator.clipboard.writeText(window.location.href);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+  const isBookmarked = (name: string) => {
+    return watchlist.some(w => w.name.toLowerCase() === name.toLowerCase());
   };
 
-  const handleCopySummary = () => {
-    if (!result) return;
-    const summaryText = `[TrendMarket Rapport] ${result.termA.name} vs ${result.termB.name} (${category})\n\n` +
-      `• ${result.termA.name} : Score ${result.termA.trendScore}/100 (${result.termA.trendDirection}) - Adoption: ${result.termA.marketShare}\n` +
-      `• ${result.termB.name} : Score ${result.termB.trendScore}/100 (${result.termB.trendDirection}) - Adoption: ${result.termB.marketShare}\n\n` +
-      `Synthèse : ${result.comparisonSummary}`;
-    navigator.clipboard.writeText(summaryText);
-    setCopiedSummary(true);
-    setTimeout(() => setCopiedSummary(false), 2500);
+  // --- SAVED ANALYSES (HISTORIQUE) STATE ---
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('tm_saved_reports');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: 'rep-1',
+        type: 'market_analysis',
+        title: 'Filière Manioc & Farines Standardisées au Togo',
+        category: 'Agroalimentaire',
+        region: 'togo',
+        savedAt: '12 Octobre 2026',
+        summary: 'Demande urbaine en forte hausse, opportunité sur le packaging étanche 1kg et la certification ITRA.',
+        payload: null
+      },
+      {
+        id: 'rep-2',
+        type: 'comparison',
+        title: 'Wave vs Orange Money (Zone UEMOA)',
+        category: 'Fintech',
+        region: 'west_africa',
+        savedAt: '10 Octobre 2026',
+        summary: 'Confrontation sur les commissions marchandes et l’interopérabilité régionale.',
+        payload: null
+      }
+    ];
+  });
+
+  const handleDeleteSaved = (id: string) => {
+    const updated = savedAnalyses.filter(s => s.id !== id);
+    setSavedAnalyses(updated);
+    try {
+      localStorage.setItem('tm_saved_reports', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
+    }
   };
 
-  const handleExportJSON = () => {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trendmarket-${termA.toLowerCase()}-vs-${termB.toLowerCase()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // --- MODALS STATE ---
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [isDataSourcesOpen, setIsDataSourcesOpen] = useState(false);
+
+  // Tab switch handler with URL sync
+  const handleSelectTab = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  const handleExportMarkdown = () => {
-    if (!result) return;
-    const mdContent = `# TrendMarket - Rapport d'Analyse Comparative
-
-**Sujet A :** ${result.termA.name} (${result.termA.typeLabel})  
-**Sujet B :** ${result.termB.name} (${result.termB.typeLabel})  
-**Catégorie :** ${category}  
-**Date :** ${new Date().toLocaleDateString('fr-FR')}  
-
----
-
-## 📈 Synthèse et Verdict
-${result.comparisonSummary}
-
-### Facteurs Clés
-${result.keyFactors.map(f => `- ${f}`).join('\n')}
-
----
-
-## 🔍 Fiche Comparative : ${result.termA.name}
-- **Score d'intérêt / Tendance :** ${result.termA.trendScore}/100 (${result.termA.trendDirection})
-- **Part de Marché / Adoption :** ${result.termA.marketShare}
-- **Description :** ${result.termA.description}
-- **Modèle Économique :** ${result.termA.businessModel || 'N/A'}
-- **Public & Cas d'Usage :** ${result.termA.useCasesAndUtility || 'N/A'}
-
-### Forces
-${result.termA.pros.map(p => `+ ${p}`).join('\n')}
-
-### Limites
-${result.termA.cons.map(c => `- ${c}`).join('\n')}
-
----
-
-## 🔍 Fiche Comparative : ${result.termB.name}
-- **Score d'intérêt / Tendance :** ${result.termB.trendScore}/100 (${result.termB.trendDirection})
-- **Part de Marché / Adoption :** ${result.termB.marketShare}
-- **Description :** ${result.termB.description}
-- **Modèle Économique :** ${result.termB.businessModel || 'N/A'}
-- **Public & Cas d'Usage :** ${result.termB.useCasesAndUtility || 'N/A'}
-
-### Forces
-${result.termB.pros.map(p => `+ ${p}`).join('\n')}
-
-### Limites
-${result.termB.cons.map(c => `- ${c}`).join('\n')}
-`;
-
-    const blob = new Blob([mdContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trendmarket-${termA.toLowerCase()}-vs-${termB.toLowerCase()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  // Prepare chart data
-  const months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin'];
-  const formattedChartData = result ? months.map((month, index) => {
-    const valA = result.termA.monthlyData?.[index] ?? 50;
-    const valB = result.termB.monthlyData?.[index] ?? 50;
-    return {
-      name: month,
-      [result.termA.name]: valA,
-      [result.termB.name]: valB,
-    };
-  }) : [];
-
-  // Loading steps text
-  const loadingMessages = [
-    "Consultation en temps réel des moteurs de recherche...",
-    "Récupération et filtrage des articles de presse récents...",
-    "Analyse statistique de l'indice d'intérêt relatif...",
-    "Génération de la synthèse visuelle et des sources d'information..."
-  ];
 
   return (
-    <div className="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-200 min-h-screen flex flex-col font-sans">
-      
-      {/* HEADER */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 sticky top-0 z-50 transition-colors print:hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          
-          {/* Logo */}
-          <div className="flex items-center space-x-2.5">
-            <div className="bg-blue-600 text-white p-2 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/15">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight leading-none">
-                Trend<span className="text-blue-500">Market</span>
-              </span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Comparateur Universel</span>
-            </div>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors selection:bg-blue-600 selection:text-white">
+      {/* 1. TOP BAR NAVIGATION (Top Bar Contract) */}
+      <TopBar
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        onOpenPricing={() => setIsPricingOpen(true)}
+        watchlistCount={watchlist.length}
+      />
+
+      {/* 2. MAIN CONTENT VIEWPORT */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 lg:pb-12">
+        {activeTab === 'dashboard' && (
+          <ExecutiveDashboard
+            trends={trends}
+            opportunities={opportunities}
+            selectedRegion={selectedRegion}
+            onChangeRegion={setSelectedRegion}
+            onSearchMarket={(q) => handleAnalyzeMarket(q)}
+            onAnalyzeMarket={handleAnalyzeMarket}
+            onSelectTab={handleSelectTab}
+            watchlist={watchlist}
+            onToggleWatchlist={handleToggleWatchlist}
+            isBookmarked={isBookmarked}
+          />
+        )}
+
+        {activeTab === 'explorer' && (
+          <MarketExplorer
+            trends={trends}
+            selectedRegion={selectedRegion}
+            onChangeRegion={setSelectedRegion}
+            onAnalyzeMarket={handleAnalyzeMarket}
+            watchlist={watchlist}
+            onToggleWatchlist={handleToggleWatchlist}
+            isBookmarked={isBookmarked}
+          />
+        )}
+
+        {activeTab === 'analysis' && (
+          <MarketAnalysisView
+            report={analysisReport}
+            loading={analysisLoading}
+            error={analysisError}
+            onSearchMarket={(m, s, r) => handleAnalyzeMarket(m, s, r)}
+            selectedRegion={selectedRegion}
+            onChangeRegion={setSelectedRegion}
+            onOpenDataSources={() => setIsDataSourcesOpen(true)}
+          />
+        )}
+
+        {activeTab === 'opportunities' && (
+          <OpportunityDetectorView
+            opportunities={opportunities}
+            selectedRegion={selectedRegion}
+            onChangeRegion={setSelectedRegion}
+            onAnalyzeMarket={handleAnalyzeMarket}
+          />
+        )}
+
+        {activeTab === 'compare' && (
+          <ComparisonView
+            termA={termA}
+            setTermA={setTermA}
+            termB={termB}
+            setTermB={setTermB}
+            category={category}
+            setCategory={setCategory}
+            searchMode={searchMode}
+            setSearchMode={setSearchMode}
+            result={compareResult}
+            loading={compareLoading}
+            error={compareError}
+            onExecuteCompare={handleExecuteCompare}
+            onOpenDataSources={() => setIsDataSourcesOpen(true)}
+          />
+        )}
+
+        {activeTab === 'watchlist' && (
+          <WatchlistView
+            watchlist={watchlist}
+            onRemoveItem={handleRemoveWatchlistItem}
+            onAddItem={handleToggleWatchlist}
+            onAnalyzeMarket={handleAnalyzeMarket}
+          />
+        )}
+
+        {activeTab === 'bi_memo' && (
+          <BusinessIntelligenceView
+            onAnalyzeMarket={handleAnalyzeMarket}
+            selectedRegion={selectedRegion}
+            onChangeRegion={setSelectedRegion}
+          />
+        )}
+
+        {activeTab === 'reports' && (
+          <HistoryReportsView
+            savedAnalyses={savedAnalyses}
+            onDeleteSaved={handleDeleteSaved}
+            onOpenAnalysis={(item) => {
+              if (item.type === 'market_analysis') {
+                handleAnalyzeMarket(item.title);
+              } else {
+                handleSelectTab('compare');
+              }
+            }}
+          />
+        )}
+      </main>
+
+      {/* 3. MOBILE THUMB-FRIENDLY TAB BAR */}
+      <MobileTabBar
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+        watchlistCount={watchlist.length}
+      />
+
+      {/* 4. MODALS */}
+      <MonetizationModal
+        isOpen={isPricingOpen}
+        onClose={() => setIsPricingOpen(false)}
+      />
+
+      <DataSourcesModal
+        isOpen={isDataSourcesOpen}
+        onClose={() => setIsDataSourcesOpen(false)}
+      />
+
+      {/* 5. FOOTER (Quiet, zero telemetry slop) */}
+      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-xs text-slate-500 dark:text-slate-400 print:hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-900 dark:text-white">TrendMarket</span>
+            <span>· Market Intelligence pour PME & Décideurs (Togo, UEMOA & Global)</span>
           </div>
 
-          {/* Slogan Desktop */}
-          <div className="hidden md:flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/50">
-            <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-            <span>Sondages et analyses de tendances en temps réel</span>
-          </div>
-
-          {/* Actions & Theme Selector */}
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center gap-4 text-xs">
             <button
               type="button"
-              onClick={handleShareLink}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition-all duration-200 cursor-pointer flex items-center gap-1.5 active:scale-95 shadow-sm text-xs font-semibold"
-              title="Copier le lien permanent de cette comparaison"
-              aria-label="Partager la comparaison"
+              onClick={() => setIsDataSourcesOpen(true)}
+              className="hover:underline cursor-pointer"
             >
-              {copiedLink ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-emerald-600 dark:text-emerald-400">Copié !</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="hidden sm:inline">Partager</span>
-                </>
-              )}
+              Provenance des Données
             </button>
-
-            <button 
+            <button
               type="button"
-              onClick={() => setIsDarkMode((prev) => !prev)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none transition-all duration-200 cursor-pointer flex items-center gap-2 active:scale-95 shadow-sm" 
-              aria-label={isDarkMode ? "Passer en mode clair" : "Passer en mode sombre"}
-              title={isDarkMode ? "Passer en mode clair" : "Passer en mode sombre"}
+              onClick={() => setIsPricingOpen(true)}
+              className="hover:underline cursor-pointer"
             >
-              {isDarkMode ? (
-                <>
-                  <Sun className="w-4 h-4 text-amber-400 shrink-0 pointer-events-none" />
-                  <span className="text-xs font-semibold text-amber-400 pointer-events-none hidden sm:inline">Mode Clair</span>
-                </>
-              ) : (
-                <>
-                  <Moon className="w-4 h-4 text-slate-700 shrink-0 pointer-events-none" />
-                  <span className="text-xs font-semibold text-slate-700 pointer-events-none hidden sm:inline">Mode Sombre</span>
-                </>
-              )}
+              Offres & Tarifs
             </button>
-          </div>
-        </div>
-      </header>
-
-      {/* HERO SECTION / CONTROLLER */}
-      <div className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 py-10 transition-colors print:py-4">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">
-            Comparez les Tendances de n'importe quel marché
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base max-w-2xl mx-auto leading-relaxed mb-8">
-            Saisissez deux marques, produits, services, technologies ou concepts. Le moteur de recherche analyse le web en direct pour extraire les données d'adoption et fiches techniques.
-          </p>
-
-          {/* MAIN COMPARATOR FORM */}
-          <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 text-left max-w-3xl mx-auto shadow-sm print:hidden">
-            
-            {/* SEARCH ENGINE MODE SELECTOR */}
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-5 pb-3 border-b border-slate-200/60 dark:border-slate-800/60">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-blue-500" />
-                Moteur d'Extraction :
-              </span>
-              <div className="inline-flex p-1 bg-slate-200/70 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setSearchMode('direct_web')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    searchMode === 'direct_web'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  <span>🌐 Direct Web (Sans IA)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSearchMode('ai')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    searchMode === 'ai'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>✨ Analyse IA (Gemini Grounding)</span>
-                </button>
-              </div>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleCompare(false);
-              }}
-              className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end"
-            >
-              
-              {/* Product A Input */}
-              <div className="md:col-span-3 flex flex-col gap-1.5">
-                <label htmlFor="term-a-input" className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-                  Premier sujet (Terme A)
-                </label>
-                <div className="relative">
-                  <Search className="w-4.5 h-4.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    id="term-a-input"
-                    ref={inputARef}
-                    type="text"
-                    value={termA}
-                    onChange={(e) => setTermA(e.target.value)}
-                    placeholder="Ex: Netflix, Bitcoin, Apple..."
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-9 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 dark:text-white"
-                  />
-                  {termA && (
-                    <button
-                      type="button"
-                      onClick={() => setTermA('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
-                      title="Effacer le premier sujet"
-                      aria-label="Effacer le terme A"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Intersect / Swap button */}
-              <div className="flex md:col-span-1 justify-center pb-1 sm:pb-2">
-                <button
-                  type="button"
-                  onClick={handleSwapTerms}
-                  title="Inverser les deux termes de comparaison"
-                  aria-label="Inverser les termes"
-                  className="bg-white dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-full p-2.5 shadow-sm text-slate-500 hover:text-blue-500 dark:text-slate-400 transition-transform active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  <ArrowRightLeft className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Product B Input */}
-              <div className="md:col-span-3 flex flex-col gap-1.5">
-                <label htmlFor="term-b-input" className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-pink-500 shrink-0" />
-                  Deuxième sujet (Terme B)
-                </label>
-                <div className="relative">
-                  <Search className="w-4.5 h-4.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    id="term-b-input"
-                    type="text"
-                    value={termB}
-                    onChange={(e) => setTermB(e.target.value)}
-                    placeholder="Ex: Disney+, Or, Samsung..."
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-9 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 dark:text-white"
-                  />
-                  {termB && (
-                    <button
-                      type="button"
-                      onClick={() => setTermB('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
-                      title="Effacer le deuxième sujet"
-                      aria-label="Effacer le terme B"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Extra filters and Submit row */}
-              <div className="md:col-span-7 mt-3 pt-4 border-t border-slate-200/50 dark:border-slate-800/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                {/* Category */}
-                <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-slate-400" />
-                  <label htmlFor="category-select" className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">Catégorie :</label>
-                  <select
-                    id="category-select"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="Général">Général & Divers</option>
-                    <option value="Streaming & Médias">Streaming & Médias</option>
-                    <option value="Électronique & High-Tech">Électronique & High-Tech</option>
-                    <option value="Alimentation & Biens">Alimentation & Biens</option>
-                    <option value="Services & Plateformes">Services & Plateformes</option>
-                    <option value="Automobile">Automobile & Transport</option>
-                    <option value="Crypto & Finance">Crypto & Finance</option>
-                    <option value="Développement & Outils">Développement & Outils</option>
-                  </select>
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-3 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Analyse en cours...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ArrowRightLeft className="w-4 h-4" />
-                      <span>Lancer la comparaison</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* POPULAR SUGGESTIONS GRID */}
-          <div className="mt-6 flex flex-col items-center print:hidden">
-            <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2.5 flex items-center gap-1">
-              <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
-              Sujets de comparaison populaires
-            </span>
-            <div className="flex flex-wrap justify-center gap-2 max-w-4xl">
-              {POPULAR_COMPARISONS.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSuggestionClick(item.termA, item.termB, item.category)}
-                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-200/40 dark:border-slate-800/40 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  {item.termA} vs {item.termB}
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-1.5 font-normal">({item.label})</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* ERROR DISPLAY */}
-      {error && (
-        <div className="max-w-4xl mx-auto w-full px-4 mt-6">
-          <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-950/40 text-rose-700 dark:text-rose-300 rounded-xl p-4 text-sm flex items-start gap-3 shadow-sm">
-            <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold">Erreur :</span> {error}
-              <button 
-                onClick={() => handleCompare(false)} 
-                className="block underline font-medium mt-1 text-xs hover:text-rose-800"
-              >
-                Réessayer la requête
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* LOADING SCREEN */}
-      <AnimatePresence mode="wait">
-        {loading && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="max-w-4xl mx-auto w-full px-4 mt-12 text-center py-20 flex flex-col items-center"
-          >
-            {/* Spinning Loader */}
-            <div className="relative w-16 h-16 mb-6">
-              <div className="absolute inset-0 rounded-full border-4 border-slate-200 dark:border-slate-800" />
-              <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
-              <div className="absolute inset-0 flex items-center justify-center text-blue-500">
-                <RefreshCw className="w-6 h-6 animate-pulse" />
-              </div>
-            </div>
-
-            {/* Step text */}
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-              Analyse en cours...
-            </h3>
-            
-            {/* Animated Loading Text */}
-            <div className="h-6 overflow-hidden max-w-md mx-auto">
-              <AnimatePresence mode="popLayout">
-                <motion.p
-                  key={loadingStep}
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: -20, opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="text-sm text-slate-500 dark:text-slate-400 font-medium"
-                >
-                  {loadingMessages[loadingStep]}
-                </motion.p>
-              </AnimatePresence>
-            </div>
-
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-12 max-w-xs">
-              Nous scannons de multiples sources web publiques sans polluer votre réseau local.
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* MAIN DATA OUTPUTS */}
-      {!loading && result && (
-        <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-          
-          {/* TOOLBAR EXPORT & ACTIONS */}
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs print:hidden">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Rapport de confrontation :
-              </span>
-              <span className="text-xs font-semibold text-slate-900 dark:text-white">
-                {result.termA.name} <span className="text-slate-400">vs</span> {result.termB.name}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={handleCopySummary}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 text-xs font-medium transition-colors cursor-pointer"
-                title="Copier le résumé"
-              >
-                {copiedSummary ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedSummary ? "Synthèse copiée" : "Copier la synthèse"}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportMarkdown}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 text-xs font-medium transition-colors cursor-pointer"
-                title="Télécharger le rapport au format Markdown"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export .MD</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportJSON}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 text-xs font-medium transition-colors cursor-pointer"
-                title="Télécharger les données structurées JSON"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export JSON</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 text-xs font-medium transition-colors cursor-pointer"
-                title="Imprimer ou enregistrer en PDF"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Imprimer / PDF</span>
-              </button>
-            </div>
-          </div>
-
-          {result.isDirectWebSearch && (
-            <div className="mb-6 p-4 rounded-xl border border-blue-200/60 bg-blue-50/70 text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200 flex items-center justify-between gap-3 text-xs sm:text-sm shadow-sm">
-              <div className="flex items-start gap-3">
-                <Globe className="w-5 h-5 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
-                <div>
-                  <p className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-2 flex-wrap">
-                    <span>Recherche Web Directe (Sans IA)</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-blue-200/80 dark:bg-blue-900/80 text-blue-900 dark:text-blue-100">
-                      Information Pure
-                    </span>
-                  </p>
-                  <p className="mt-0.5 text-slate-600 dark:text-slate-300 leading-relaxed">
-                    Les fiches, synthèses et données ci-dessous affichent directement l'information consolidée en temps réel.
-                  </p>
-                </div>
-              </div>
-
-              {result.groundingSources && result.groundingSources.length > 0 && (
-                <button
-                  onClick={() => setShowSources(!showSources)}
-                  className="shrink-0 px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-800 bg-white dark:bg-blue-900/40 text-blue-700 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/80 transition-all font-semibold text-xs cursor-pointer print:hidden"
-                >
-                  {showSources ? "Masquer les liens sources" : "Afficher les liens sources"}
-                </button>
-              )}
-            </div>
-          )}
-
-          {result.isFallback && !result.isDirectWebSearch && (
-            <div className="mb-6 p-4 rounded-xl border border-amber-200/50 bg-amber-50/60 text-amber-900 dark:border-amber-950/40 dark:bg-amber-950/20 dark:text-amber-200 flex items-start gap-3 text-xs sm:text-sm shadow-sm">
-              <Sparkles className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-              <div>
-                <p className="font-bold text-amber-800 dark:text-amber-300">
-                  {result.isStandardAIFallback 
-                    ? "Mode d'analyse IA standard actif" 
-                    : "Mode d'analyse prédictif actif"}
-                </p>
-                <p className="mt-0.5 text-slate-600 dark:text-slate-400">
-                  {result.isStandardAIFallback
-                    ? "L'analyse a été générée instantanément par notre IA en exploitant ses connaissances sectorielles."
-                    : "Notre moteur algorithmique local intelligent a pris le relais avec succès pour estimer et tracer cette comparaison avec une haute fidélité."}
-                </p>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
-            {/* LEFT / TOP COLUMN: DYNAMIC GRAPH VIEW */}
-            <div className="lg:col-span-2 space-y-6">
-              
-              {/* CHART CARD */}
-              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
-                  <div>
-                    <h2 className="text-lg font-bold flex items-center gap-2 text-slate-900 dark:text-white">
-                      <TrendingUp className="w-5 h-5 text-blue-500" />
-                      Évolution trimestrielle de l'intérêt public
-                    </h2>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                      Indice d'intérêt de recherche estimé à partir des résultats web (échelle 0-100)
-                    </p>
-                  </div>
-                  
-                  {/* Small badge of category */}
-                  <span className="inline-flex items-center gap-1 w-fit px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-100/50 dark:border-blue-950/30">
-                    {category}
-                  </span>
-                </div>
-
-                {/* GRAPH CONTAINER */}
-                <div className="h-72 sm:h-[340px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={formattedChartData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="colorA" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorB" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ec4899" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#ec4899" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid 
-                        strokeDasharray="3 3" 
-                        vertical={false}
-                        stroke={isDarkMode ? 'rgb(30, 41, 59)' : 'rgb(241, 245, 249)'} 
-                      />
-                      <XAxis 
-                        dataKey="name" 
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 11, fontWeight: 500 }}
-                        dy={8}
-                      />
-                      <YAxis 
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 11, fontWeight: 500 }}
-                        dx={-8}
-                      />
-                      <Tooltip 
-                        content={({ active, payload, label }) => {
-                          if (active && payload && payload.length) {
-                            return (
-                              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-lg">
-                                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{label}</p>
-                                <div className="space-y-1.5">
-                                  {payload.map((p: any) => (
-                                    <div key={p.name} className="flex items-center gap-3 text-sm">
-                                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.stroke }} />
-                                      <span className="font-medium text-slate-600 dark:text-slate-300">{p.name} :</span>
-                                      <span className="font-bold text-slate-900 dark:text-slate-100 ml-auto">{p.value}% d'intérêt</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
-                          return null;
-                        }} 
-                      />
-                      <Legend 
-                        verticalAlign="top"
-                        height={40}
-                        iconType="circle"
-                        iconSize={8}
-                        formatter={(value) => (
-                          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            {value}
-                          </span>
-                        )}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey={result.termA.name} 
-                        stroke="#3b82f6" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorA)" 
-                        dot={{ r: 4, strokeWidth: 1.5, fill: isDarkMode ? '#030712' : '#ffffff' }}
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey={result.termB.name} 
-                        stroke="#ec4899" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorB)" 
-                        dot={{ r: 4, strokeWidth: 1.5, fill: isDarkMode ? '#030712' : '#ffffff' }}
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-900 flex flex-col sm:flex-row justify-between gap-2 text-xs text-slate-400 dark:text-slate-500">
-                  <span className="flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 shrink-0 text-blue-500" />
-                    <span>Calculé dynamiquement via consolidation multi-sources</span>
-                  </span>
-                  <span>Actualisation en temps réel</span>
-                </div>
-              </div>
-
-              {/* SIDE-BY-SIDE ANALYSES CARD */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                {/* TERM A DETAILS */}
-                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-3.5">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
-                          <h3 className="font-extrabold text-xl text-slate-900 dark:text-white leading-tight">
-                            {result.termA.name}
-                          </h3>
-                        </div>
-                        
-                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                          {result.termA.typeLabel && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-900/50">
-                              <Package className="w-3 h-3" />
-                              {result.termA.typeLabel}
-                            </span>
-                          )}
-                          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                            Adoption : {result.termA.marketShare}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Direction badge */}
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold leading-none shrink-0 ${
-                        result.termA.trendDirection === 'up' 
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
-                          : result.termA.trendDirection === 'down'
-                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
-                      }`}>
-                        {result.termA.trendDirection === 'up' && <TrendingUp className="w-3.5 h-3.5" />}
-                        {result.termA.trendDirection === 'down' && <TrendingDown className="w-3.5 h-3.5" />}
-                        {result.termA.trendDirection === 'stable' && <Minus className="w-3.5 h-3.5" />}
-                        <span className="capitalize">{result.termA.trendDirection === 'up' ? 'Hausse' : result.termA.trendDirection === 'down' ? 'Baisse' : 'Stable'}</span>
-                      </span>
-                    </div>
-
-                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
-                      {result.termA.description}
-                    </p>
-
-                    {/* Capabilities list */}
-                    {result.termA.capabilities && result.termA.capabilities.length > 0 && (
-                      <div className="space-y-2.5 mb-5 bg-blue-50/40 dark:bg-blue-950/20 p-3.5 rounded-xl border border-blue-100/60 dark:border-blue-900/30">
-                        <span className="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-blue-500" />
-                          Capacités & Fonctionnalités clés
-                        </span>
-                        <div className="space-y-1.5">
-                          {result.termA.capabilities.map((cap, i) => (
-                            <div key={i} className="flex items-start gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
-                              <span className="text-blue-500 font-bold shrink-0">•</span>
-                              <span>{cap}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Pros list */}
-                    <div className="space-y-3 mb-5">
-                      <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Avantages / Forces</span>
-                      {result.termA.pros.map((pro, i) => (
-                        <div key={i} className="flex items-start gap-2.5 text-xs sm:text-sm">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="text-slate-600 dark:text-slate-300">{pro}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Cons list */}
-                    <div className="space-y-3">
-                      <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Limites / Défis</span>
-                      {result.termA.cons.map((con, i) => (
-                        <div key={i} className="flex items-start gap-2.5 text-xs sm:text-sm">
-                          <XCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                          <span className="text-slate-600 dark:text-slate-300">{con}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Final Score Gauge */}
-                  <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-900/60 flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Score de popularité :</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                        <div className="bg-blue-500 h-full rounded-full" style={{ width: `${result.termA.trendScore}%` }} />
-                      </div>
-                      <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{result.termA.trendScore}/100</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* TERM B DETAILS */}
-                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-3.5">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
-                          <h3 className="font-extrabold text-xl text-slate-900 dark:text-white leading-tight">
-                            {result.termB.name}
-                          </h3>
-                        </div>
-
-                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                          {result.termB.typeLabel && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-pink-50 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 border border-pink-200/50 dark:border-pink-900/50">
-                              <Package className="w-3 h-3" />
-                              {result.termB.typeLabel}
-                            </span>
-                          )}
-                          <span className="text-xs font-semibold text-pink-600 dark:text-pink-400">
-                            Adoption : {result.termB.marketShare}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Direction badge */}
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold leading-none shrink-0 ${
-                        result.termB.trendDirection === 'up' 
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
-                          : result.termB.trendDirection === 'down'
-                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
-                      }`}>
-                        {result.termB.trendDirection === 'up' && <TrendingUp className="w-3.5 h-3.5" />}
-                        {result.termB.trendDirection === 'down' && <TrendingDown className="w-3.5 h-3.5" />}
-                        {result.termB.trendDirection === 'stable' && <Minus className="w-3.5 h-3.5" />}
-                        <span className="capitalize">{result.termB.trendDirection === 'up' ? 'Hausse' : result.termB.trendDirection === 'down' ? 'Baisse' : 'Stable'}</span>
-                      </span>
-                    </div>
-
-                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
-                      {result.termB.description}
-                    </p>
-
-                    {/* Capabilities list */}
-                    {result.termB.capabilities && result.termB.capabilities.length > 0 && (
-                      <div className="space-y-2.5 mb-5 bg-pink-50/40 dark:bg-pink-950/20 p-3.5 rounded-xl border border-pink-100/60 dark:border-pink-900/30">
-                        <span className="text-xs font-bold text-pink-700 dark:text-pink-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-pink-500" />
-                          Capacités & Fonctionnalités clés
-                        </span>
-                        <div className="space-y-1.5">
-                          {result.termB.capabilities.map((cap, i) => (
-                            <div key={i} className="flex items-start gap-2 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
-                              <span className="text-pink-500 font-bold shrink-0">•</span>
-                              <span>{cap}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Pros list */}
-                    <div className="space-y-3 mb-5">
-                      <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Avantages / Forces</span>
-                      {result.termB.pros.map((pro, i) => (
-                        <div key={i} className="flex items-start gap-2.5 text-xs sm:text-sm">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="text-slate-600 dark:text-slate-300">{pro}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Cons list */}
-                    <div className="space-y-3">
-                      <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Limites / Défis</span>
-                      {result.termB.cons.map((con, i) => (
-                        <div key={i} className="flex items-start gap-2.5 text-xs sm:text-sm">
-                          <XCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                          <span className="text-slate-600 dark:text-slate-300">{con}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Final Score Gauge */}
-                  <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-900/60 flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Score de popularité :</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                        <div className="bg-pink-500 h-full rounded-full" style={{ width: `${result.termB.trendScore}%` }} />
-                      </div>
-                      <span className="font-mono font-bold text-pink-600 dark:text-pink-400 text-sm">{result.termB.trendScore}/100</span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* DETAILED PROFILES CARD */}
-              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-6 border-b border-slate-100 dark:border-slate-900 pb-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                      <Sliders className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                        Fiches Détaillées : Profils, Systèmes & Utilité
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Analyse structurelle des cas d'usage, écosystèmes et modèles économiques
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
-                  {/* ITEM A DEEP PROFILE */}
-                  <div className="space-y-4 bg-slate-50/50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
-                      <h3 className="font-bold text-base text-slate-900 dark:text-white">
-                        Fiche Profil - {result.termA.name}
-                      </h3>
-                    </div>
-
-                    {/* Utilité / Target Audience */}
-                    {result.termA.useCasesAndUtility && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Target className="w-3.5 h-3.5 text-blue-500" />
-                          Utilité Principale & Public Cible
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/40 dark:border-slate-800/40">
-                          {result.termA.useCasesAndUtility}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Systems & Platforms */}
-                    {result.termA.systemsAndPlatforms && result.termA.systemsAndPlatforms.length > 0 && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Cpu className="w-3.5 h-3.5 text-blue-500" />
-                          Systèmes, Plateformes & Canaux
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {result.termA.systemsAndPlatforms.map((sys, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                              {sys}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Business Model */}
-                    {result.termA.businessModel && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <CreditCard className="w-3.5 h-3.5 text-blue-500" />
-                          Modèle Économique & Accès
-                        </span>
-                        <p className="text-xs sm:text-sm font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/40 px-3 py-2 rounded-lg border border-blue-200/40 dark:border-blue-900/40">
-                          {result.termA.businessModel}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ITEM B DEEP PROFILE */}
-                  <div className="space-y-4 bg-slate-50/50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-pink-500 shrink-0" />
-                      <h3 className="font-bold text-base text-slate-900 dark:text-white">
-                        Fiche Profil - {result.termB.name}
-                      </h3>
-                    </div>
-
-                    {/* Utilité / Target Audience */}
-                    {result.termB.useCasesAndUtility && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Target className="w-3.5 h-3.5 text-pink-500" />
-                          Utilité Principale & Public Cible
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/40 dark:border-slate-800/40">
-                          {result.termB.useCasesAndUtility}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Systems & Platforms */}
-                    {result.termB.systemsAndPlatforms && result.termB.systemsAndPlatforms.length > 0 && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Cpu className="w-3.5 h-3.5 text-pink-500" />
-                          Systèmes, Plateformes & Canaux
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {result.termB.systemsAndPlatforms.map((sys, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                              {sys}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Business Model */}
-                    {result.termB.businessModel && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <CreditCard className="w-3.5 h-3.5 text-pink-500" />
-                          Modèle Économique & Accès
-                        </span>
-                        <p className="text-xs sm:text-sm font-semibold text-pink-700 dark:text-pink-300 bg-pink-50/60 dark:bg-pink-950/40 px-3 py-2 rounded-lg border border-pink-200/40 dark:border-pink-900/40">
-                          {result.termB.businessModel}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                </div>
-              </div>
-
-              {/* TECHNICAL DATASHEETS */}
-              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-6 border-b border-slate-100 dark:border-slate-900 pb-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                        Fiches Techniques Comparatives
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Spécifications détaillées, caractéristiques techniques, normes et performances
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  
-                  {/* FICHE TECHNIQUE A */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
-                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                        Fiche Technique : {result.termA.name}
-                      </h3>
-                    </div>
-
-                    <div className="divide-y divide-slate-100 dark:divide-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 rounded-xl overflow-hidden bg-slate-50/30 dark:bg-slate-900/20">
-                      {result.termA.technicalSpecs && result.termA.technicalSpecs.length > 0 ? (
-                        result.termA.technicalSpecs.map((spec, idx) => (
-                          <div key={idx} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-                            <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0 sm:w-2/5">
-                              {spec.label}
-                            </span>
-                            <span className="font-medium text-slate-900 dark:text-slate-200 text-left sm:text-right sm:w-3/5">
-                              {spec.value}
-                            </span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-4 text-xs text-slate-500 italic">
-                          Données techniques standardisées pour {result.termA.name}.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* FICHE TECHNIQUE B */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
-                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                        Fiche Technique : {result.termB.name}
-                      </h3>
-                    </div>
-
-                    <div className="divide-y divide-slate-100 dark:divide-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 rounded-xl overflow-hidden bg-slate-50/30 dark:bg-slate-900/20">
-                      {result.termB.technicalSpecs && result.termB.technicalSpecs.length > 0 ? (
-                        result.termB.technicalSpecs.map((spec, idx) => (
-                          <div key={idx} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-                            <span className="font-semibold text-slate-500 dark:text-slate-400 shrink-0 sm:w-2/5">
-                              {spec.label}
-                            </span>
-                            <span className="font-medium text-slate-900 dark:text-slate-200 text-left sm:text-right sm:w-3/5">
-                              {spec.value}
-                            </span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-4 text-xs text-slate-500 italic">
-                          Données techniques standardisées pour {result.termB.name}.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-            </div>
-
-            {/* RIGHT COLUMN: SYNTHESIS & VERIFIED SOURCES */}
-            <div className="lg:col-span-1 space-y-6">
-              
-              {/* MARKET confront overview */}
-              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-                <h3 className="font-extrabold text-base mb-3.5 flex items-center gap-2 text-slate-900 dark:text-white">
-                  <Award className="w-4.5 h-4.5 text-blue-500" />
-                  Confrontation & Verdict
-                </h3>
-                
-                <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
-                  {result.comparisonSummary}
-                </p>
-
-                {/* Driving factors list */}
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-900">
-                  <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-3">Facteurs clés de divergence</span>
-                  <div className="space-y-2">
-                    {result.keyFactors.map((factor, i) => (
-                      <div key={i} className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200/50 dark:border-slate-800/50 text-xs font-medium text-slate-700 dark:text-slate-300">
-                        {factor}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* REAL-TIME SOURCES SCAN */}
-              {showSources && result.groundingSources && result.groundingSources.length > 0 && (
-                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-ping" />
-                      <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
-                        Sources Web Rattachées
-                      </h3>
-                    </div>
-                    <button
-                      onClick={() => setShowSources(false)}
-                      className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline cursor-pointer"
-                    >
-                      Masquer
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                    Liens et références externes utilisés pour la consolidation :
-                  </p>
-
-                  <div className="space-y-2.5">
-                    {result.groundingSources.map((src, i) => (
-                      <a
-                        key={i}
-                        href={src.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group flex items-start gap-2 p-2.5 rounded-xl border border-slate-200/70 dark:border-slate-800/70 hover:border-blue-500/40 dark:hover:border-blue-500/40 bg-slate-50/50 dark:bg-slate-900/30 hover:bg-white dark:hover:bg-slate-950 transition-all duration-200 text-xs"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 shrink-0 mt-0.5 transition-colors" />
-                        <div className="flex-grow min-w-0">
-                          <span className="font-semibold text-slate-700 dark:text-slate-300 block truncate group-hover:text-blue-500 transition-colors">
-                            {src.title}
-                          </span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 block truncate font-mono">
-                            {src.url}
-                          </span>
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            </div>
-
-          </div>
-
-        </main>
-      )}
-
-      {/* FOOTER */}
-      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 py-6 mt-12 transition-colors print:hidden">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>&copy; 2026 TrendMarket. Conçu pour une comparaison de tendances universelle et fluide.</p>
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5 text-[11px] text-emerald-500 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Information Consolidée en Temps Réel
-            </span>
+            <span>© {new Date().getFullYear()} TrendMarket</span>
           </div>
         </div>
       </footer>

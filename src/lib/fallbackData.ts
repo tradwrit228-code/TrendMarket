@@ -14,10 +14,12 @@ export interface ItemProfile {
   useCasesAndUtility: string;
   systemsAndPlatforms: string[];
   businessModel: string;
-  technicalSpecs?: TechnicalSpec[];
+  technicalSpecs: TechnicalSpec[];
   pros: string[];
   cons: string[];
   monthlyData: number[];
+  volatilityIndex?: number;
+  confidenceScore?: number;
 }
 
 export interface CompareData {
@@ -28,8 +30,22 @@ export interface CompareData {
   termB: ItemProfile;
   comparisonSummary: string;
   keyFactors: string[];
-  groundingSources?: Array<{ title: string; url: string }>;
+  groundingSources?: Array<{ title: string; url: string; snippet?: string }>;
+  metrics?: {
+    deltaScore: number;
+    averageIndexationScore: number;
+    dataFreshnessTimestamp: number;
+  };
 }
+
+export const POPULAR_COMPARISONS = [
+  { termA: "Netflix", termB: "Disney+", label: "Streaming", category: "Streaming & Médias" },
+  { termA: "Wave", termB: "Orange Money", label: "Fintech", category: "Fintech & Mobile Money" },
+  { termA: "Soja Bio", termB: "Maïs Local", label: "Agriculture", category: "Agriculture" },
+  { termA: "Python", termB: "Rust", label: "Développement", category: "Développement & Outils" },
+  { termA: "Manioc Transformé", termB: "Riz Importé", label: "Agroalimentaire", category: "Agroalimentaire" },
+  { termA: "Solaire PV", termB: "Groupe Électrogène", label: "Énergie", category: "Énergie" }
+];
 
 export function generateClientFallbackData(termA: string, termB: string, category?: string): CompareData {
   const cat = category || 'Général';

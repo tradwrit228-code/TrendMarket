@@ -1,6 +1,6 @@
 {
   "name": "TrendMarket",
-  "description": "Comparateur universel de tendances de marché, parts d'adoption et fiches techniques en temps réel avec moteur d'extraction web et IA.",
+  "description": "Plateforme de Market Intelligence pour détecter, analyser et contextualiser les tendances commerciales en Afrique et dans le monde (Togo, UEMOA, Global).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

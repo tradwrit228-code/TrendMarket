@@ -14,6 +14,23 @@ import {
   generateBIMemo 
 } from "./src/lib/data/marketIntelligenceData.ts";
 import { SECTORS, GEO_SCOPES, GeoRegion, SectorId, BIOkObjective } from "./src/lib/types/marketIntelligence.ts";
+import { requireAuth, optionalAuth, AuthRequest } from "./src/middleware/auth.ts";
+import { getOrCreateUser, getUserByUid } from "./src/db/users.ts";
+import { getUserWatchlists, addToWatchlist, removeFromWatchlist } from "./src/db/watchlists.ts";
+import { 
+  getUserAnalyses, 
+  saveAnalysis, 
+  deleteAnalysis, 
+  getUserComparisons, 
+  saveComparison, 
+  deleteComparison 
+} from "./src/db/savedItems.ts";
+import { 
+  getCategories, 
+  getCountries, 
+  getDataSources, 
+  getActiveOpportunities 
+} from "./src/db/referenceData.ts";
 
 dotenv.config();
 
@@ -187,7 +204,7 @@ Fournis une analyse de marché rigoureuse au format JSON structuré avec :
 Réponds uniquement en JSON valide conforme.`;
 
         const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: "gemini-3.8-flash",
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -497,7 +514,7 @@ Ta réponse DOIT être un objet JSON valide rédigé dans la langue principale d
     try {
       // --- LAYER 1: Full Grounding with Search Tool ---
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -550,7 +567,7 @@ Ta réponse DOIT être un objet JSON valide rédigé dans la langue principale d
       try {
         // --- LAYER 2: Standard AI Generation (Fallback) ---
         const responseNoSearch = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: "gemini-3.8-flash",
           contents: prompt + "\nNote : Utilise ta base de connaissances pour l'analyse.",
           config: {
             responseMimeType: "application/json",
@@ -586,6 +603,249 @@ Ta réponse DOIT être un objet JSON valide rédigé dans la langue principale d
         logger.logExtraction(termA, termB, 'smart_heuristic_fallback', true, Date.now() - startTime, 2);
         return res.json(fallbackResponse);
       }
+    }
+  });
+
+  // --- CLOUD SQL / POSTGRESQL PERSISTENCE ENDPOINTS ---
+
+  // Sync user profile upon Firebase Authentication
+  app.post("/api/auth/sync", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user || !req.user.uid) {
+        return res.status(401).json({ error: "Utilisateur non authentifié" });
+      }
+      const user = await getOrCreateUser(
+        req.user.uid,
+        req.user.email || "user@trendmarket.ai",
+        req.body?.displayName || req.user.name,
+        req.body?.photoUrl || req.user.picture
+      );
+      res.json({ success: true, user });
+    } catch (error: any) {
+      console.error("[AuthSync Error]", error);
+      res.status(500).json({ error: "Impossible de synchroniser l'utilisateur avec la base de données." });
+    }
+  });
+
+  // Get current user profile
+  app.get("/api/user/profile", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const user = await getUserByUid(req.user.uid);
+      res.json({ user });
+    } catch (error: any) {
+      console.error("[Profile Error]", error);
+      res.status(500).json({ error: "Erreur lors de la récupération du profil." });
+    }
+  });
+
+  // Watchlists
+  app.get("/api/user/watchlists", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const items = await getUserWatchlists(req.user.uid);
+      res.json({ items });
+    } catch (error: any) {
+      console.error("[Watchlist Error]", error);
+      res.status(500).json({ error: "Erreur lors de la lecture de la watchlist." });
+    }
+  });
+
+  app.post("/api/user/watchlists", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const { itemType, name, sector, region, initialMomentum, notes } = req.body;
+      if (!name || !itemType) {
+        return res.status(400).json({ error: "Le nom et le type d'élément sont obligatoires." });
+      }
+      const item = await addToWatchlist({
+        userId: req.user.uid,
+        itemType,
+        name,
+        sector,
+        region,
+        initialMomentum: typeof initialMomentum === 'number' ? initialMomentum : undefined,
+        notes,
+      });
+      res.status(201).json({ success: true, item });
+    } catch (error: any) {
+      console.error("[Watchlist Add Error]", error);
+      res.status(500).json({ error: "Erreur lors de l'ajout à la watchlist." });
+    }
+  });
+
+  app.delete("/api/user/watchlists/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID invalide" });
+      }
+      const deleted = await removeFromWatchlist(id, req.user.uid);
+      res.json({ success: true, deleted: Boolean(deleted) });
+    } catch (error: any) {
+      console.error("[Watchlist Delete Error]", error);
+      res.status(500).json({ error: "Erreur lors de la suppression de la watchlist." });
+    }
+  });
+
+  // Saved Analyses
+  app.get("/api/user/analyses", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const items = await getUserAnalyses(req.user.uid);
+      res.json({ items });
+    } catch (error: any) {
+      console.error("[Saved Analyses Error]", error);
+      res.status(500).json({ error: "Erreur lors de la récupération des analyses." });
+    }
+  });
+
+  app.post("/api/user/analyses", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const { marketName, sectorId, region, opportunityScore, executiveSummary, reportData } = req.body;
+      if (!marketName || !reportData) {
+        return res.status(400).json({ error: "Données d'analyse incomplètes." });
+      }
+      const item = await saveAnalysis({
+        userId: req.user.uid,
+        marketName,
+        sectorId: sectorId || "general",
+        region: region || "global",
+        opportunityScore: Number(opportunityScore) || 50,
+        executiveSummary: executiveSummary || "",
+        reportData: typeof reportData === 'string' ? reportData : JSON.stringify(reportData),
+      });
+      res.status(201).json({ success: true, item });
+    } catch (error: any) {
+      console.error("[Save Analysis Error]", error);
+      res.status(500).json({ error: "Erreur lors de l'enregistrement de l'analyse." });
+    }
+  });
+
+  app.delete("/api/user/analyses/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID invalide" });
+      }
+      const deleted = await deleteAnalysis(id, req.user.uid);
+      res.json({ success: true, deleted: Boolean(deleted) });
+    } catch (error: any) {
+      console.error("[Delete Analysis Error]", error);
+      res.status(500).json({ error: "Erreur lors de la suppression de l'analyse." });
+    }
+  });
+
+  // Saved Comparisons
+  app.get("/api/user/comparisons", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const items = await getUserComparisons(req.user.uid);
+      res.json({ items });
+    } catch (error: any) {
+      console.error("[Saved Comparisons Error]", error);
+      res.status(500).json({ error: "Erreur lors de la récupération des comparaisons." });
+    }
+  });
+
+  app.post("/api/user/comparisons", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const { termA, termB, category, comparisonData } = req.body;
+      if (!termA || !termB || !comparisonData) {
+        return res.status(400).json({ error: "Données de comparaison incomplètes." });
+      }
+      const item = await saveComparison({
+        userId: req.user.uid,
+        termA,
+        termB,
+        category,
+        comparisonData: typeof comparisonData === 'string' ? comparisonData : JSON.stringify(comparisonData),
+      });
+      res.status(201).json({ success: true, item });
+    } catch (error: any) {
+      console.error("[Save Comparison Error]", error);
+      res.status(500).json({ error: "Erreur lors de l'enregistrement de la comparaison." });
+    }
+  });
+
+  app.delete("/api/user/comparisons/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID invalide" });
+      }
+      const deleted = await deleteComparison(id, req.user.uid);
+      res.json({ success: true, deleted: Boolean(deleted) });
+    } catch (error: any) {
+      console.error("[Delete Comparison Error]", error);
+      res.status(500).json({ error: "Erreur lors de la suppression de la comparaison." });
+    }
+  });
+
+  // Reference data endpoints (Categories, Countries, Data Sources, Opportunities)
+  app.get("/api/categories", async (_req, res) => {
+    try {
+      const items = await getCategories();
+      res.json({ categories: items });
+    } catch (error: any) {
+      console.error("[Categories API Error]", error);
+      res.status(500).json({ error: "Erreur lors du chargement des catégories." });
+    }
+  });
+
+  app.get("/api/countries", async (_req, res) => {
+    try {
+      const items = await getCountries();
+      res.json({ countries: items });
+    } catch (error: any) {
+      console.error("[Countries API Error]", error);
+      res.status(500).json({ error: "Erreur lors du chargement des pays." });
+    }
+  });
+
+  app.get("/api/data-sources", async (_req, res) => {
+    try {
+      const items = await getDataSources();
+      res.json({ sources: items });
+    } catch (error: any) {
+      console.error("[DataSources API Error]", error);
+      res.status(500).json({ error: "Erreur lors du chargement des sources." });
+    }
+  });
+
+  app.get("/api/opportunities", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string, 10) || 10;
+      const items = await getActiveOpportunities(limit);
+      res.json({ opportunities: items });
+    } catch (error: any) {
+      console.error("[Opportunities API Error]", error);
+      res.status(500).json({ error: "Erreur lors du chargement des opportunités." });
     }
   });
 

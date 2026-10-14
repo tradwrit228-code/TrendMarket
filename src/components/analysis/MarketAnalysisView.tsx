@@ -18,7 +18,8 @@ import {
   Clock,
   ShieldCheck,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  Bookmark
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -64,7 +65,15 @@ export const MarketAnalysisView: React.FC<MarketAnalysisViewProps> = ({
   onSaveReport,
 }) => {
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const [savedLocally, setSavedLocally] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'seasonality' | 'competition' | 'action_plan'>('overview');
+
+  const handleSave = () => {
+    if (!report || !onSaveReport) return;
+    onSaveReport(report);
+    setSavedLocally(true);
+    setTimeout(() => setSavedLocally(false), 2500);
+  };
 
   // Format Recharts data for seasonality
   const seasonalityChartData = report?.seasonalityCurve.map((s) => ({
@@ -238,6 +247,22 @@ ${report.dataSources.map(d => `- **${d.title}** (${d.organization}) - ${d.dataTy
 
                 {/* Export buttons */}
                 <div className="flex items-center gap-1.5 print:hidden">
+                  {onSaveReport && (
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      className={`p-2 rounded-lg text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        savedLocally 
+                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                      title="Sauvegarder dans ma base Cloud SQL"
+                    >
+                      {savedLocally ? <Check className="w-4 h-4 text-emerald-600" /> : <Bookmark className="w-4 h-4" />}
+                      <span className="hidden sm:inline-block text-[11px]">{savedLocally ? 'Enregistré' : 'Enregistrer'}</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleCopySummary}

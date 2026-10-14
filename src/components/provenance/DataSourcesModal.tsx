@@ -6,10 +6,35 @@ interface DataSourcesModalProps {
   onClose: () => void;
 }
 
+interface DataSourceRecord {
+  id: string;
+  name: string;
+  provider: string;
+  sourceType: string;
+  baseUrl: string;
+  description: string;
+  isActive: boolean;
+}
+
 export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const [dbSources, setDbSources] = React.useState<DataSourceRecord[]>([]);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      fetch('/api/data-sources')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.sources) {
+            setDbSources(data.sources);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -49,33 +74,48 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
-              <span className="font-bold text-slate-900 dark:text-white block">UEMOA & BCEAO</span>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                Statistiques monétaires, volumes Mobile Money, taux d'inflation et mercuriales régionales officielles.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
-              <span className="font-bold text-slate-900 dark:text-white block">FAO & Ministères Agricoles</span>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                Recensements agricoles (Togo DSID), cours vivriers des grands marchés et bilans céréaliers annuels.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
-              <span className="font-bold text-slate-900 dark:text-white block">TradeMap (ITC) & Douanes</span>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                Flux d'import-export transfrontaliers, barrières tarifaires CEDEAO et traçabilité des filières d'exportation.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
-              <span className="font-bold text-slate-900 dark:text-white block">Grounded Search Index</span>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                Échantillonnage en direct des publications professionnelles, journaux officiels et signaux du web indexés.
-              </p>
-            </div>
+            {dbSources.length > 0 ? (
+              dbSources.map((src) => (
+                <div key={src.id} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 dark:text-white block">{src.name}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 font-mono">
+                      {src.provider}
+                    </span>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    {src.description}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <>
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white block">UEMOA & BCEAO</span>
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    Statistiques monétaires, volumes Mobile Money, taux d'inflation et mercuriales régionales officielles.
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white block">FAO & Ministères Agricoles</span>
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    Recensements agricoles (Togo DSID), cours vivriers des grands marchés et bilans céréaliers annuels.
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white block">TradeMap (ITC) & Douanes</span>
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    Flux d'import-export transfrontaliers, barrières tarifaires CEDEAO et traçabilité des filières d'exportation.
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white block">Grounded Search Index</span>
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                    Échantillonnage en direct des publications professionnelles, journaux officiels et signaux du web indexés.
+                  </p>
+                </div>
+              </>
+            )}
           </div>
 
           <h3 className="font-bold text-slate-900 dark:text-white text-sm pt-2">

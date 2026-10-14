@@ -27,8 +27,11 @@ import {
 } from './lib/data/marketIntelligenceData';
 import { CompareData, generateClientFallbackData } from './lib/fallbackData';
 import { performDirectWebSearch } from './lib/directWebSearch';
+import { useAuth } from './context/AuthContext';
 
 export default function App() {
+  const { user, token } = useAuth();
+
   // --- THEME STATE ---
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -295,11 +298,101 @@ export default function App() {
     ];
   });
 
-  const handleToggleWatchlist = (item: any) => {
+  // --- POSTGRESQL / CLOUD SQL DATA SYNCHRONIZATION ---
+  useEffect(() => {
+    if (!user || !token) return;
+
+    let isSubscribed = true;
+    const fetchUserData = async () => {
+      try {
+        const [wlRes, repRes] = await Promise.all([
+          fetch('/api/user/watchlists', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }),
+          fetch('/api/user/analyses', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        ]);
+
+        if (wlRes.ok && isSubscribed) {
+          const wlJson = await wlRes.json();
+          if (wlJson.items && wlJson.items.length > 0) {
+            const mapped: WatchlistItem[] = wlJson.items.map((dbItem: any) => ({
+              id: String(dbItem.id),
+              type: (dbItem.itemType as any) || 'market',
+              name: dbItem.name,
+              category: dbItem.sector || 'Général',
+              region: (dbItem.region as any) || 'global',
+              currentMomentum: dbItem.initialMomentum ?? 35,
+              currentScore: 82,
+              addedAt: new Date(dbItem.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+              lastCheckedAt: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+              alertThreshold: 10,
+              status: 'active'
+            }));
+            setWatchlist(mapped);
+          }
+        }
+
+        if (repRes.ok && isSubscribed) {
+          const repJson = await repRes.json();
+          if (repJson.items && repJson.items.length > 0) {
+            const mapped: SavedAnalysis[] = repJson.items.map((dbItem: any) => {
+              let parsedPayload = null;
+              try {
+                parsedPayload = JSON.parse(dbItem.reportData);
+              } catch {
+                // ignore
+              }
+              return {
+                id: String(dbItem.id),
+                type: 'market_analysis',
+                title: `Marché : ${dbItem.marketName}`,
+                category: dbItem.sectorId,
+                region: (dbItem.region as any) || 'togo',
+                savedAt: new Date(dbItem.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+                summary: dbItem.executiveSummary,
+                payload: parsedPayload,
+              };
+            });
+            setSavedAnalyses(prev => {
+              const dbIds = new Set(mapped.map(m => m.id));
+              return [...mapped, ...prev.filter(p => !dbIds.has(p.id))];
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load user database data:', err);
+      }
+    };
+
+    fetchUserData();
+    return () => { isSubscribed = false; };
+  }, [user, token]);
+
+  const handleToggleWatchlist = async (item: any) => {
     const existingIndex = watchlist.findIndex(w => w.name.toLowerCase() === item.name.toLowerCase());
     let updated: WatchlistItem[];
     if (existingIndex >= 0) {
+      const removedItem = watchlist[existingIndex];
       updated = watchlist.filter((_, idx) => idx !== existingIndex);
+      setWatchlist(updated);
+      try {
+        localStorage.setItem('tm_watchlist', JSON.stringify(updated));
+      } catch (e) {
+        // ignore
+      }
+
+      if (token && !isNaN(Number(removedItem.id))) {
+        try {
+          await fetch(`/api/user/watchlists/${removedItem.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        } catch (e) {
+          console.error('Error removing from DB watchlist:', e);
+        }
+      }
     } else {
       const newItem: WatchlistItem = {
         ...item,
@@ -309,22 +402,60 @@ export default function App() {
         status: 'active'
       };
       updated = [newItem, ...watchlist];
-    }
-    setWatchlist(updated);
-    try {
-      localStorage.setItem('tm_watchlist', JSON.stringify(updated));
-    } catch (e) {
-      // ignore
+      setWatchlist(updated);
+      try {
+        localStorage.setItem('tm_watchlist', JSON.stringify(updated));
+      } catch (e) {
+        // ignore
+      }
+
+      if (token) {
+        try {
+          const res = await fetch('/api/user/watchlists', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              itemType: item.type || 'market',
+              name: item.name,
+              sector: item.category || 'Général',
+              region: item.region || selectedRegion,
+              initialMomentum: item.currentMomentum || 35,
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.item?.id) {
+              setWatchlist(curr => curr.map(w => w.name === item.name ? { ...w, id: String(data.item.id) } : w));
+            }
+          }
+        } catch (e) {
+          console.error('Error persisting to DB watchlist:', e);
+        }
+      }
     }
   };
 
-  const handleRemoveWatchlistItem = (id: string) => {
+  const handleRemoveWatchlistItem = async (id: string) => {
     const updated = watchlist.filter(w => w.id !== id);
     setWatchlist(updated);
     try {
       localStorage.setItem('tm_watchlist', JSON.stringify(updated));
     } catch (e) {
       // ignore
+    }
+
+    if (token && !isNaN(Number(id))) {
+      try {
+        await fetch(`/api/user/watchlists/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } catch (e) {
+        console.error('Error removing from DB watchlist:', e);
+      }
     }
   };
 
@@ -366,13 +497,82 @@ export default function App() {
     ];
   });
 
-  const handleDeleteSaved = (id: string) => {
+  const handleSaveAnalysis = async (reportToSave: MarketAnalysisReport) => {
+    const newSaved: SavedAnalysis = {
+      id: `rep-${Date.now()}`,
+      type: 'market_analysis',
+      title: `Marché : ${reportToSave.marketName}`,
+      category: reportToSave.sectorId,
+      region: reportToSave.region,
+      savedAt: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+      summary: reportToSave.executiveSummary,
+      payload: reportToSave
+    };
+
+    setSavedAnalyses(prev => [newSaved, ...prev]);
+    try {
+      localStorage.setItem('tm_saved_reports', JSON.stringify([newSaved, ...savedAnalyses]));
+    } catch (e) {
+      // ignore
+    }
+
+    if (token) {
+      try {
+        const res = await fetch('/api/user/analyses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            marketName: reportToSave.marketName,
+            sectorId: reportToSave.sectorId,
+            region: reportToSave.region,
+            opportunityScore: reportToSave.opportunityScore.totalScore,
+            executiveSummary: reportToSave.executiveSummary,
+            reportData: reportToSave,
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.item?.id) {
+            setSavedAnalyses(curr => curr.map(s => s.id === newSaved.id ? { ...s, id: String(data.item.id) } : s));
+          }
+        }
+      } catch (err) {
+        console.error('Error persisting analysis report to PostgreSQL:', err);
+      }
+    }
+  };
+
+  const handleDeleteSaved = async (id: string) => {
     const updated = savedAnalyses.filter(s => s.id !== id);
     setSavedAnalyses(updated);
     try {
       localStorage.setItem('tm_saved_reports', JSON.stringify(updated));
     } catch (e) {
       // ignore
+    }
+
+    if (token && !isNaN(Number(id))) {
+      try {
+        await fetch(`/api/user/analyses/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } catch (e) {
+        console.error('Error deleting analysis from PostgreSQL:', e);
+      }
+    }
+  };
+
+  const handleOpenSavedAnalysis = (item: SavedAnalysis) => {
+    if (item.payload) {
+      setAnalysisReport(item.payload);
+      setActiveTab('analysis');
+    } else {
+      const cleanName = item.title.replace('Marché : ', '').replace('Filière ', '').replace(' (Zone UEMOA)', '');
+      handleAnalyzeMarket(cleanName, item.category as SectorId, item.region);
     }
   };
 
@@ -441,6 +641,7 @@ export default function App() {
             selectedRegion={selectedRegion}
             onChangeRegion={setSelectedRegion}
             onOpenDataSources={() => setIsDataSourcesOpen(true)}
+            onSaveReport={handleSaveAnalysis}
           />
         )}
 
@@ -492,13 +693,7 @@ export default function App() {
           <HistoryReportsView
             savedAnalyses={savedAnalyses}
             onDeleteSaved={handleDeleteSaved}
-            onOpenAnalysis={(item) => {
-              if (item.type === 'market_analysis') {
-                handleAnalyzeMarket(item.title);
-              } else {
-                handleSelectTab('compare');
-              }
-            }}
+            onOpenAnalysis={handleOpenSavedAnalysis}
           />
         )}
       </main>

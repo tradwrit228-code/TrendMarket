@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar, ActiveTab } from './components/navigation/TopBar';
 import { MobileTabBar } from './components/navigation/MobileTabBar';
+import { LandingPage } from './components/landing/LandingPage';
 import { ExecutiveDashboard } from './components/dashboard/ExecutiveDashboard';
 import { MarketExplorer } from './components/explorer/MarketExplorer';
 import { MarketAnalysisView } from './components/analysis/MarketAnalysisView';
@@ -57,11 +58,11 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab') as ActiveTab;
-      if (tab && ['dashboard', 'explorer', 'analysis', 'compare', 'opportunities', 'watchlist', 'bi_memo', 'reports'].includes(tab)) {
+      if (tab && ['landing', 'dashboard', 'explorer', 'analysis', 'compare', 'opportunities', 'watchlist', 'bi_memo', 'reports'].includes(tab)) {
         return tab;
       }
     }
-    return 'dashboard';
+    return 'landing';
   });
 
   // --- GEOGRAPHIC SCOPE STATE ---
@@ -604,7 +605,13 @@ export default function App() {
       />
 
       {/* 2. MAIN CONTENT VIEWPORT */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 lg:pb-12">
+      {activeTab === 'landing' ? (
+        <LandingPage
+          onEnterApp={() => setActiveTab('dashboard')}
+          onOpenPricing={() => setIsPricingOpen(true)}
+        />
+      ) : (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 lg:pb-12">
         {activeTab === 'dashboard' && (
           <ExecutiveDashboard
             trends={trends}
@@ -697,6 +704,7 @@ export default function App() {
           />
         )}
       </main>
+      )}
 
       {/* 3. MOBILE THUMB-FRIENDLY TAB BAR */}
       <MobileTabBar

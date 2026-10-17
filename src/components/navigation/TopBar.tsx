@@ -3,6 +3,7 @@ import { Sun, Moon, Sparkles, TrendingUp, Compass, Bookmark, ArrowRightLeft, Fil
 import { useAuth } from '../../context/AuthContext';
 
 export type ActiveTab = 
+  | 'landing'
   | 'dashboard'
   | 'explorer'
   | 'analysis'
@@ -37,7 +38,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
         {/* ZONE 1: Brand Wordmark (Single text element, 1 line) */}
         <div 
-          onClick={() => onSelectTab('dashboard')} 
+          onClick={() => onSelectTab('landing')} 
           className="flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0"
         >
           <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
@@ -53,6 +54,18 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* ZONE 2: 4-5 Navigation Links (1-2 word labels, single line) */}
         <nav className="hidden lg:flex items-center gap-6 text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => onSelectTab('landing')}
+            className={`whitespace-nowrap shrink-0 transition-colors cursor-pointer py-1 ${
+              activeTab === 'landing'
+                ? 'text-blue-600 dark:text-blue-400 font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+            }`}
+          >
+            Accueil
+          </button>
+
           <button
             type="button"
             onClick={() => onSelectTab('dashboard')}

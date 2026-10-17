@@ -5,7 +5,7 @@ import {
   signOut as fbSignOut, 
   onIdTokenChanged 
 } from 'firebase/auth';
-import { auth, googleAuthProvider } from '../lib/firebase';
+import { auth, googleAuthProvider, isFirebaseConfigured } from '../lib/firebase';
 
 export interface DbUserProfile {
   id: number;
@@ -61,32 +61,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setDbUser(data.user);
       }
     } catch (err) {
-      console.error('Failed to sync user with PostgreSQL database:', err);
+      console.error('Failed to sync user with database:', err);
     }
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        try {
-          const freshToken = await currentUser.getIdToken();
-          setToken(freshToken);
-          await syncWithDatabase(currentUser, freshToken);
-        } catch (e) {
-          console.error('Error fetching token:', e);
-        }
-      } else {
-        setToken(null);
-        setDbUser(null);
-      }
+    if (!isFirebaseConfigured || !auth) {
       setLoading(false);
-    });
+      return;
+    }
 
-    return () => unsubscribe();
+    try {
+      const unsubscribe = onIdTokenChanged(auth, async (currentUser) => {
+        setUser(currentUser);
+        if (currentUser) {
+          try {
+            const freshToken = await currentUser.getIdToken();
+            setToken(freshToken);
+            await syncWithDatabase(currentUser, freshToken);
+          } catch (e) {
+            console.error('Error fetching token:', e);
+          }
+        } else {
+          setToken(null);
+          setDbUser(null);
+        }
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Auth observer error:', e);
+      setLoading(false);
+    }
   }, [syncWithDatabase]);
 
   const signInWithGoogle = async () => {
+    if (!isFirebaseConfigured || !auth) {
+      alert("Firebase Authentication n'est pas configuré. Veuillez configurer vos clés API Firebase dans les variables d'environnement (.env) pour activer la connexion Google.");
+      return;
+    }
     try {
       setLoading(true);
       const cred = await signInWithPopup(auth, googleAuthProvider);
@@ -104,6 +118,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    if (!isFirebaseConfigured || !auth) {
+      setUser(null);
+      setToken(null);
+      setDbUser(null);
+      return;
+    }
     try {
       await fbSignOut(auth);
       setUser(null);
@@ -115,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getIdToken = async () => {
-    if (!auth.currentUser) return null;
+    if (!auth || !auth.currentUser) return null;
     const freshToken = await auth.currentUser.getIdToken();
     setToken(freshToken);
     return freshToken;

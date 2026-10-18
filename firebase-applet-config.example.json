@@ -1,10 +1,10 @@
 {
-  "projectId": "your-firebase-project-id",
-  "appId": "1:000000000000:web:0000000000000000000000",
-  "apiKey": "AIzaSy_YOUR_FIREBASE_API_KEY_HERE",
-  "authDomain": "your-firebase-project-id.firebaseapp.com",
-  "storageBucket": "your-firebase-project-id.firebasestorage.app",
-  "messagingSenderId": "000000000000",
+  "projectId": "zany-vine-b8f9p",
+  "appId": "1:116055567830:web:af7cc7eaf89068685e8877",
+  "apiKey": "AIzaSyBF5urPaNl0L33gKapBj2MKEwqS6SZ3uMI",
+  "authDomain": "zany-vine-b8f9p.firebaseapp.com",
+  "storageBucket": "zany-vine-b8f9p.firebasestorage.app",
+  "messagingSenderId": "116055567830",
   "measurementId": "",
   "oAuthClientId": "000000000000-xxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
